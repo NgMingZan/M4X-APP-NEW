@@ -1,8 +1,8 @@
 {
-  "versionCode": 42,
-  "versionName": "3.0.12",
+  "versionCode": 43,
+  "versionName": "3.1.0",
   "apkUrl": "https://github.com/NgMingZan/M4X-APP-NEW/releases/latest/download/M4X-Theme.apk",
-  "title": "M4X Theme v3.0.12",
-  "message": "Cho phép sử dụng và bỏ sử dụng vật phẩm đã mua; áp dụng màu tên, khung avatar, nền hồ sơ, hiệu ứng và huy hiệu.",
+  "title": "M4X Theme v3.1.0",
+  "message": "Thêm Né chướng ngại, Mê cung M4X, Bản đồ kho báu đầy đủ và Nuôi thú cưng M4X.",
   "forceUpdate": false
 }

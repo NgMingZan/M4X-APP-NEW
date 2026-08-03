@@ -88,6 +88,88 @@ data class MiniGameResult(
     val remaining: Int
 )
 
+data class ArcadeRewardResult(
+    val reward: Int,
+    val balance: Long,
+    val dailyTotal: Int,
+    val message: String
+)
+
+data class MazeStartResult(
+    val sessionId: String,
+    val difficulty: String,
+    val seed: Long,
+    val fee: Int,
+    val balance: Long,
+    val minSeconds: Int
+)
+
+data class MazeFinishResult(
+    val reward: Int,
+    val balance: Long,
+    val message: String
+)
+
+data class TreasureLeader(
+    val rank: Int,
+    val displayName: String,
+    val openedCount: Int
+)
+
+data class TreasureState(
+    val weekStart: String,
+    val day: Int,
+    val openedDays: List<Int>,
+    val keys: Int,
+    val secretDay: Int,
+    val secretClaimed: Boolean,
+    val bronzeClaimed: Boolean,
+    val silverClaimed: Boolean,
+    val goldClaimed: Boolean,
+    val streakWeeks: Int,
+    val rescueUsed: Boolean,
+    val bossEnergy: Int,
+    val shareCode: String,
+    val taskCode: String,
+    val taskTitle: String,
+    val taskProgress: Int,
+    val taskTarget: Int,
+    val bossName: String,
+    val bossHp: Int,
+    val bossMaxHp: Int,
+    val seasonName: String,
+    val seasonRewardItem: String,
+    val leaders: List<TreasureLeader>
+)
+
+data class TreasureActionResult(
+    val reward: Int = 0,
+    val bonus: Int = 0,
+    val streakBonus: Int = 0,
+    val balance: Long = 0L,
+    val openedDay: Int = 0,
+    val rescuedDay: Int = 0,
+    val damage: Int = 0,
+    val bossHp: Int = 0,
+    val bossMaxHp: Int = 0,
+    val defeated: Boolean = false,
+    val rareItem: Boolean = false,
+    val secret: Boolean = false,
+    val shareCode: String = ""
+)
+
+data class PetState(
+    val name: String,
+    val type: String,
+    val level: Int,
+    val xp: Int,
+    val xpTarget: Int,
+    val hunger: Int,
+    val food: Int,
+    val levelReward: Int,
+    val balance: Long
+)
+
 data class RemoteConfig(
     val minVersionCode: Int = 0,
     val latestVersionCode: Int = 0,
@@ -453,6 +535,162 @@ class SupabaseApi(private val context: Context) {
         }
     }
 
+    suspend fun recordThemeView(session: Session, themeId: String): Result<Unit> = io {
+        val body = JSONObject().put("p_theme_id", themeId)
+        execute(base("${SupabaseConfig.url}/rest/v1/rpc/record_theme_view", session)
+            .post(body.toString().toRequestBody(jsonType)).build())
+    }
+
+    suspend fun claimObstacleReward(session: Session, score: Int): Result<ArcadeRewardResult> = io {
+        val body = JSONObject().put("p_score", score.coerceAtLeast(0))
+        val req = base("${SupabaseConfig.url}/rest/v1/rpc/claim_obstacle_reward", session)
+            .post(body.toString().toRequestBody(jsonType)).build()
+        http.newCall(req).execute().use { res ->
+            val text = res.body?.string().orEmpty()
+            if (!res.isSuccessful) throw IOException(error(text, "Không thể nhận thưởng Né chướng ngại"))
+            val o = rpcObject(text)
+            ArcadeRewardResult(o.optInt("reward"), o.optLong("balance"), o.optInt("daily_total"), o.optString("message"))
+        }
+    }
+
+    suspend fun startMazeGame(session: Session, difficulty: String): Result<MazeStartResult> = io {
+        val body = JSONObject().put("p_difficulty", difficulty)
+        val req = base("${SupabaseConfig.url}/rest/v1/rpc/start_maze_game", session)
+            .post(body.toString().toRequestBody(jsonType)).build()
+        http.newCall(req).execute().use { res ->
+            val text = res.body?.string().orEmpty()
+            if (!res.isSuccessful) throw IOException(error(text, "Không thể bắt đầu mê cung"))
+            val o = rpcObject(text)
+            MazeStartResult(
+                sessionId = o.optString("session_id"),
+                difficulty = o.optString("difficulty"),
+                seed = o.optLong("seed"),
+                fee = o.optInt("fee", 50),
+                balance = o.optLong("balance"),
+                minSeconds = o.optInt("min_seconds")
+            )
+        }
+    }
+
+    suspend fun finishMazeGame(session: Session, sessionId: String): Result<MazeFinishResult> = io {
+        val body = JSONObject().put("p_session_id", sessionId)
+        val req = base("${SupabaseConfig.url}/rest/v1/rpc/finish_maze_game", session)
+            .post(body.toString().toRequestBody(jsonType)).build()
+        http.newCall(req).execute().use { res ->
+            val text = res.body?.string().orEmpty()
+            if (!res.isSuccessful) throw IOException(error(text, "Không thể nhận thưởng mê cung"))
+            val o = rpcObject(text)
+            MazeFinishResult(o.optInt("reward"), o.optLong("balance"), o.optString("message"))
+        }
+    }
+
+    suspend fun treasureState(session: Session): Result<TreasureState> = io {
+        val req = base("${SupabaseConfig.url}/rest/v1/rpc/get_treasure_state", session)
+            .post("{}".toRequestBody(jsonType)).build()
+        http.newCall(req).execute().use { res ->
+            val text = res.body?.string().orEmpty()
+            if (!res.isSuccessful) throw IOException(error(text, "Không tải được Bản đồ kho báu"))
+            val o = rpcObject(text)
+            val opened = o.optJSONArray("opened_days")?.let { a ->
+                List(a.length()) { i -> a.optInt(i) }.filter { it in 1..7 }
+            }.orEmpty()
+            val season = o.optJSONObject("season") ?: JSONObject()
+            val leadersJson = o.optJSONArray("leaders") ?: JSONArray()
+            val leaders = List(leadersJson.length()) { i -> leadersJson.getJSONObject(i).let { l ->
+                TreasureLeader(l.optInt("rank", i + 1), l.optString("display_name", "M4X Member"), l.optInt("opened_count"))
+            } }
+            TreasureState(
+                weekStart = o.optString("week_start"),
+                day = o.optInt("day", 1),
+                openedDays = opened,
+                keys = o.optInt("keys"),
+                secretDay = o.optInt("secret_day"),
+                secretClaimed = o.optBoolean("secret_claimed"),
+                bronzeClaimed = o.optBoolean("bronze_claimed"),
+                silverClaimed = o.optBoolean("silver_claimed"),
+                goldClaimed = o.optBoolean("gold_claimed"),
+                streakWeeks = o.optInt("streak_weeks"),
+                rescueUsed = o.optBoolean("rescue_used"),
+                bossEnergy = o.optInt("boss_energy"),
+                shareCode = o.optString("share_code"),
+                taskCode = o.optString("task_code"),
+                taskTitle = o.optString("task_title"),
+                taskProgress = o.optInt("task_progress"),
+                taskTarget = o.optInt("task_target"),
+                bossName = o.optString("boss_name", "Cướp biển Bóng Đêm"),
+                bossHp = o.optInt("boss_hp"),
+                bossMaxHp = o.optInt("boss_max_hp", 5000),
+                seasonName = season.optString("name", "Mùa M4X"),
+                seasonRewardItem = season.optString("reward_item"),
+                leaders = leaders
+            )
+        }
+    }
+
+    suspend fun claimTreasureDay(session: Session): Result<TreasureActionResult> = treasureAction(session, "claim_treasure_day", JSONObject())
+
+    suspend fun claimTreasureChest(session: Session, type: String): Result<TreasureActionResult> =
+        treasureAction(session, "claim_treasure_chest", JSONObject().put("p_chest_type", type))
+
+    suspend fun useTreasureRescueCard(session: Session): Result<TreasureActionResult> =
+        treasureAction(session, "use_treasure_rescue_card", JSONObject())
+
+    suspend fun attackTreasureBoss(session: Session): Result<TreasureActionResult> =
+        treasureAction(session, "attack_treasure_boss", JSONObject())
+
+    suspend fun redeemTreasureShareCode(session: Session, code: String): Result<TreasureActionResult> =
+        treasureAction(session, "redeem_treasure_share_code", JSONObject().put("p_code", code.trim().uppercase()))
+
+    private suspend fun treasureAction(session: Session, rpc: String, body: JSONObject): Result<TreasureActionResult> = io {
+        val req = base("${SupabaseConfig.url}/rest/v1/rpc/$rpc", session)
+            .post(body.toString().toRequestBody(jsonType)).build()
+        http.newCall(req).execute().use { res ->
+            val text = res.body?.string().orEmpty()
+            if (!res.isSuccessful) throw IOException(error(text, "Không thể xử lý Bản đồ kho báu"))
+            val o = rpcObject(text)
+            TreasureActionResult(
+                reward = o.optInt("reward"),
+                bonus = o.optInt("bonus"),
+                streakBonus = o.optInt("streak_bonus"),
+                balance = o.optLong("balance"),
+                openedDay = o.optInt("opened_day"),
+                rescuedDay = o.optInt("rescued_day"),
+                damage = o.optInt("damage"),
+                bossHp = o.optInt("boss_hp"),
+                bossMaxHp = o.optInt("boss_max_hp"),
+                defeated = o.optBoolean("defeated"),
+                rareItem = o.optBoolean("rare_item"),
+                secret = o.optBoolean("secret"),
+                shareCode = o.optString("share_code")
+            )
+        }
+    }
+
+    suspend fun petState(session: Session): Result<PetState> = petRpc(session, "get_m4x_pet")
+
+    suspend fun feedPet(session: Session): Result<PetState> = petRpc(session, "feed_m4x_pet")
+
+    private suspend fun petRpc(session: Session, rpc: String): Result<PetState> = io {
+        val req = base("${SupabaseConfig.url}/rest/v1/rpc/$rpc", session)
+            .post("{}".toRequestBody(jsonType)).build()
+        http.newCall(req).execute().use { res ->
+            val text = res.body?.string().orEmpty()
+            if (!res.isSuccessful) throw IOException(error(text, "Không thể tải thú cưng M4X"))
+            val o = rpcObject(text)
+            PetState(
+                name = o.optString("name", "M4X Nova"),
+                type = o.optString("type", "nova"),
+                level = o.optInt("level", 1),
+                xp = o.optInt("xp"),
+                xpTarget = o.optInt("xp_target", 100),
+                hunger = o.optInt("hunger", 80),
+                food = o.optInt("food"),
+                levelReward = o.optInt("level_reward"),
+                balance = o.optLong("balance")
+            )
+        }
+    }
+
     suspend fun updateAvatar(session: Session, imageUri: Uri): Result<Profile> = io {
         val resolver = context.contentResolver
         val mime = resolver.getType(imageUri).orEmpty()
@@ -622,6 +860,14 @@ class SupabaseApi(private val context: Context) {
             val text = res.body?.string().orEmpty()
             if (!res.isSuccessful) throw IOException(error(text, "Yêu cầu thất bại (${res.code})"))
         }
+    }
+
+    private fun rpcObject(text: String): JSONObject {
+        val trimmed = text.trim()
+        return if (trimmed.startsWith("[")) {
+            val a = JSONArray(trimmed)
+            if (a.length() == 0) JSONObject() else a.getJSONObject(0)
+        } else JSONObject(trimmed)
     }
 
     private fun parseEvents(a: JSONArray) = List(a.length()) { i ->

@@ -398,7 +398,7 @@ private fun M4XApp() {
                     onCoinChanged = { profile = profile?.copy(points = it) },
                     onMessage = { message = it }
                 )
-                Tab.GAMES -> MiniGamesScreen(
+                Tab.GAMES -> M4XGamesHubScreen(
                     api = api,
                     session = session!!,
                     profile = profile,
@@ -561,12 +561,16 @@ private fun HomeScreen(api: SupabaseApi, session: Session, config: RemoteConfig,
         if (filtered.isEmpty()) item { EmptyState("Chưa có theme", "Theme được duyệt sẽ xuất hiện ở đây") }
         else items(filtered, key = { it.id }) { theme ->
             ThemeCard(theme) {
-                if ((profile?.points ?: 0) < theme.coinPrice) onMessage("Bạn chưa đủ ${theme.coinPrice} M4X COIN")
-                else scope.launch {
-                    api.purchaseTheme(session, theme.id).onSuccess {
-                        val url = theme.fileUrl.ifBlank { theme.driveUrl }
-                        if (url.isNotBlank()) context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-                    }.onFailure { onMessage(it.message ?: "Không thể mua theme") }
+                scope.launch {
+                    api.recordThemeView(session, theme.id)
+                    if ((profile?.points ?: 0) < theme.coinPrice) {
+                        onMessage("Bạn chưa đủ ${theme.coinPrice} M4X COIN")
+                    } else {
+                        api.purchaseTheme(session, theme.id).onSuccess {
+                            val url = theme.fileUrl.ifBlank { theme.driveUrl }
+                            if (url.isNotBlank()) context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                        }.onFailure { onMessage(it.message ?: "Không thể mua theme") }
+                    }
                 }
             }
         }
@@ -1431,8 +1435,9 @@ private fun ShopScreen(
                             Text(friendlyItemType(product.type), color = MaterialTheme.colorScheme.onSurfaceVariant)
                             if (product.limited) Text("Vật phẩm giới hạn", color = MaterialTheme.colorScheme.tertiary, style = MaterialTheme.typography.labelMedium)
                         }
+                        val consumable = product.type == "rescue_card"
                         Button(
-                            enabled = buyingId == null && (owned || balance >= product.price),
+                            enabled = buyingId == null && (!owned && balance >= product.price || owned && !consumable),
                             onClick = {
                                 buyingId = product.id
                                 scope.launch {
@@ -1441,11 +1446,14 @@ private fun ShopScreen(
                                             .onSuccess { newBalance ->
                                                 balance = newBalance
                                                 onCoinChanged(newBalance)
-                                                onMessage("Đã mua ${product.name}. Bấm Dùng để kích hoạt.")
+                                                onMessage(
+                                                    if (consumable) "Đã mua ${product.name}. Dùng trong Bản đồ kho báu."
+                                                    else "Đã mua ${product.name}. Bấm Dùng để kích hoạt."
+                                                )
                                                 api.inventory(session).onSuccess { inventory = it }
                                             }
                                             .onFailure { onMessage(it.message ?: "Không thể mua vật phẩm") }
-                                    } else {
+                                    } else if (!consumable) {
                                         api.equipInventoryItem(session, ownedItem.id)
                                             .onSuccess { equipped ->
                                                 onMessage(
@@ -1465,6 +1473,7 @@ private fun ShopScreen(
                             } else {
                                 Icon(
                                     when {
+                                        consumable && owned -> Icons.Default.Map
                                         ownedItem?.equipped == true -> Icons.Default.CheckCircle
                                         owned -> Icons.Default.PlayArrow
                                         else -> Icons.Default.Paid
@@ -1475,6 +1484,7 @@ private fun ShopScreen(
                             }
                             Text(
                                 when {
+                                    consumable && owned -> " Đã có"
                                     ownedItem?.equipped == true -> " Bỏ dùng"
                                     owned -> " Dùng"
                                     else -> " ${product.price}"
@@ -1627,6 +1637,7 @@ private fun friendlyItemType(type: String): String = when (type) {
     "profile_effect" -> "Hiệu ứng hồ sơ"
     "badge" -> "Huy hiệu"
     "profile_background" -> "Nền hồ sơ"
+    "rescue_card" -> "Vật phẩm dùng một lần"
     else -> type.replace('_', ' ').ifBlank { "Vật phẩm M4X" }
 }
 
