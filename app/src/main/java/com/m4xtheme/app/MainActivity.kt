@@ -1038,6 +1038,25 @@ private fun AdminGiftCode(api: SupabaseApi, session: Session, onMessage: (String
 }
 @Composable private fun UserAdminRow(u: Profile, canEdit: Boolean, click: () -> Unit) { ElevatedCard(shape = RoundedCornerShape(18.dp)) { Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) { Box(Modifier.size(46.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primaryContainer), contentAlignment = Alignment.Center) { Text(u.displayName.take(1).uppercase().ifBlank { "M" }, fontWeight = FontWeight.Black) }; Spacer(Modifier.width(12.dp)); Column(Modifier.weight(1f)) { Text(u.displayName.ifBlank { u.username }, fontWeight = FontWeight.Bold); Text("@${u.username} • ${u.role} • ${u.points} coin", color = MaterialTheme.colorScheme.onSurfaceVariant) }; if (canEdit && u.role != "super_admin") TextButton(onClick = click) { Text(if (u.role == "admin") "Hạ quyền" else "Lên Admin") } } } }
 
+private fun inventoryMetadata(item: InventoryItem?, key: String): String {
+    if (item == null) return ""
+    return runCatching { JSONObject(item.metadata).optString(key) }.getOrDefault("")
+}
+
+private fun inventoryColor(item: InventoryItem?, fallback: Color): Color {
+    val value = inventoryMetadata(item, "color")
+    return if (value.isBlank()) fallback
+    else runCatching { Color(android.graphics.Color.parseColor(value)) }.getOrDefault(fallback)
+}
+
+private fun profileBackgroundBrush(item: InventoryItem?): Brush {
+    return when (inventoryMetadata(item, "background")) {
+        "ocean" -> Brush.linearGradient(listOf(Color(0xFF003B73), Color(0xFF008B9A)))
+        "sunset" -> Brush.linearGradient(listOf(Color(0xFF7A1F5C), Color(0xFFE96B3C)))
+        else -> Brush.linearGradient(listOf(Color(0xFF4A247B), Color(0xFF075D72)))
+    }
+}
+
 @Composable
 private fun ProfileScreen(
     api: SupabaseApi,
@@ -1058,7 +1077,30 @@ private fun ProfileScreen(
     var mine by remember { mutableStateOf<List<ThemeItem>>(emptyList()) }
     var inventory by remember { mutableStateOf<List<InventoryItem>>(emptyList()) }
     var avatarLoading by remember { mutableStateOf(false) }
+    var equipLoadingId by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
+
+    fun reloadInventory() {
+        scope.launch {
+            api.inventory(session)
+                .onSuccess { inventory = it }
+                .onFailure { onMessage(it.message ?: "Không tải được kho vật phẩm") }
+        }
+    }
+
+    fun toggleInventoryItem(item: InventoryItem) {
+        if (equipLoadingId != null) return
+        equipLoadingId = item.id
+        scope.launch {
+            api.equipInventoryItem(session, item.id)
+                .onSuccess { equipped ->
+                    onMessage(if (equipped) "Đã sử dụng ${item.name}" else "Đã bỏ sử dụng ${item.name}")
+                    api.inventory(session).onSuccess { inventory = it }
+                }
+                .onFailure { onMessage(it.message ?: "Không thể sử dụng vật phẩm") }
+            equipLoadingId = null
+        }
+    }
     val avatarPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null && !avatarLoading) {
             scope.launch {
@@ -1076,7 +1118,7 @@ private fun ProfileScreen(
 
     LaunchedEffect(Unit) {
         api.myThemes(session).onSuccess { mine = it }
-        api.inventory(session).onSuccess { inventory = it }
+        reloadInventory()
     }
     val downloads = mine.sumOf { it.downloads }
     val roleText = when (profile?.role) {
@@ -1085,6 +1127,13 @@ private fun ProfileScreen(
         "creator" -> "NHÀ SÁNG TẠO"
         else -> "THÀNH VIÊN"
     }
+    val equippedFrame = inventory.firstOrNull { it.type == "avatar_frame" && it.equipped }
+    val equippedNameColor = inventory.firstOrNull { it.type == "name_color" && it.equipped }
+    val equippedBackground = inventory.firstOrNull { it.type == "profile_background" && it.equipped }
+    val equippedEffect = inventory.firstOrNull { it.type == "profile_effect" && it.equipped }
+    val equippedBadge = inventory.firstOrNull { it.type == "badge" && it.equipped }
+    val displayNameColor = inventoryColor(equippedNameColor, Color.White)
+    val avatarFrameColor = if (equippedFrame != null) Color(0xFF2CEBFF) else Color.White.copy(alpha = .22f)
 
     LazyColumn(
         Modifier.fillMaxSize(),
@@ -1096,17 +1145,25 @@ private fun ProfileScreen(
                 Column(
                     Modifier
                         .fillMaxWidth()
-                        .background(Brush.linearGradient(listOf(Color(0xFF4A247B), Color(0xFF075D72))))
+                        .background(profileBackgroundBrush(equippedBackground))
                         .padding(20.dp),
                     verticalArrangement = Arrangement.spacedBy(18.dp)
                 ) {
+                    if (equippedEffect != null) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                            Text("✦  ✧  ☄", color = Color.White.copy(alpha = .88f), fontWeight = FontWeight.Black)
+                        }
+                    }
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Box(Modifier.size(92.dp)) {
                             Surface(
                                 modifier = Modifier.fillMaxSize(),
                                 shape = CircleShape,
                                 color = Color.White.copy(alpha = .14f),
-                                border = androidx.compose.foundation.BorderStroke(2.dp, Color.White.copy(alpha = .22f))
+                                border = androidx.compose.foundation.BorderStroke(
+                                    if (equippedFrame != null) 4.dp else 2.dp,
+                                    avatarFrameColor
+                                )
                             ) {
                                 if (profile?.avatarUrl.isNullOrBlank()) {
                                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -1140,7 +1197,8 @@ private fun ProfileScreen(
                                     fontWeight = FontWeight.Black,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.weight(1f, fill = false)
+                                    modifier = Modifier.weight(1f, fill = false),
+                                    color = displayNameColor
                                 )
                                 Spacer(Modifier.width(6.dp))
                                 Icon(Icons.Default.Verified, null, tint = Color(0xFF32D6FF), modifier = Modifier.size(22.dp))
@@ -1153,6 +1211,7 @@ private fun ProfileScreen(
                                 ProfileBadge("VIP 1")
                                 ProfileBadge("LV.3")
                                 ProfileBadge(roleText)
+                                if (equippedBadge != null) ProfileBadge(equippedBadge.name)
                             }
                         }
                     }
@@ -1194,7 +1253,13 @@ private fun ProfileScreen(
                 if (inventory.isEmpty()) {
                     InventoryCard("Chưa có vật phẩm", "Mở Cửa hàng M4X")
                 } else {
-                    inventory.forEach { InventoryCard(it.name, friendlyItemType(it.type)) }
+                    inventory.forEach { item ->
+                        EquippedInventoryCard(
+                            item = item,
+                            loading = equipLoadingId == item.id,
+                            onToggle = { toggleInventoryItem(item) }
+                        )
+                    }
                 }
             }
         }
@@ -1302,7 +1367,6 @@ private fun ShopScreen(
         }
     }
     LaunchedEffect(Unit) { reload() }
-    val ownedIds = inventory.map { it.itemId }.filter { it.isNotBlank() }.toSet()
 
     LazyColumn(
         Modifier.fillMaxSize(),
@@ -1339,7 +1403,8 @@ private fun ShopScreen(
             item { EmptyState("Cửa hàng đang trống", "Admin chưa đăng vật phẩm mới") }
         } else {
             items(products, key = { it.id }) { product ->
-                val owned = product.id in ownedIds
+                val ownedItem = inventory.firstOrNull { it.itemId == product.id }
+                val owned = ownedItem != null
                 ElevatedCard(shape = RoundedCornerShape(22.dp)) {
                     Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                         Surface(
@@ -1367,25 +1432,54 @@ private fun ShopScreen(
                             if (product.limited) Text("Vật phẩm giới hạn", color = MaterialTheme.colorScheme.tertiary, style = MaterialTheme.typography.labelMedium)
                         }
                         Button(
-                            enabled = !owned && buyingId == null && balance >= product.price,
+                            enabled = buyingId == null && (owned || balance >= product.price),
                             onClick = {
                                 buyingId = product.id
                                 scope.launch {
-                                    api.purchaseShopItem(session, product.id)
-                                        .onSuccess { newBalance ->
-                                            balance = newBalance
-                                            onCoinChanged(newBalance)
-                                            onMessage("Đã mua ${product.name}")
-                                            api.inventory(session).onSuccess { inventory = it }
-                                        }
-                                        .onFailure { onMessage(it.message ?: "Không thể mua vật phẩm") }
+                                    if (ownedItem == null) {
+                                        api.purchaseShopItem(session, product.id)
+                                            .onSuccess { newBalance ->
+                                                balance = newBalance
+                                                onCoinChanged(newBalance)
+                                                onMessage("Đã mua ${product.name}. Bấm Dùng để kích hoạt.")
+                                                api.inventory(session).onSuccess { inventory = it }
+                                            }
+                                            .onFailure { onMessage(it.message ?: "Không thể mua vật phẩm") }
+                                    } else {
+                                        api.equipInventoryItem(session, ownedItem.id)
+                                            .onSuccess { equipped ->
+                                                onMessage(
+                                                    if (equipped) "Đã sử dụng ${product.name}"
+                                                    else "Đã bỏ sử dụng ${product.name}"
+                                                )
+                                                api.inventory(session).onSuccess { inventory = it }
+                                            }
+                                            .onFailure { onMessage(it.message ?: "Không thể sử dụng vật phẩm") }
+                                    }
                                     buyingId = null
                                 }
                             }
                         ) {
-                            if (buyingId == product.id) CircularProgressIndicator(Modifier.size(17.dp), strokeWidth = 2.dp)
-                            else Icon(if (owned) Icons.Default.Check else Icons.Default.Paid, null, Modifier.size(18.dp))
-                            Text(if (owned) " Đã có" else " ${product.price}")
+                            if (buyingId == product.id) {
+                                CircularProgressIndicator(Modifier.size(17.dp), strokeWidth = 2.dp)
+                            } else {
+                                Icon(
+                                    when {
+                                        ownedItem?.equipped == true -> Icons.Default.CheckCircle
+                                        owned -> Icons.Default.PlayArrow
+                                        else -> Icons.Default.Paid
+                                    },
+                                    null,
+                                    Modifier.size(18.dp)
+                                )
+                            }
+                            Text(
+                                when {
+                                    ownedItem?.equipped == true -> " Bỏ dùng"
+                                    owned -> " Dùng"
+                                    else -> " ${product.price}"
+                                }
+                            )
                         }
                     }
                 }
@@ -1551,5 +1645,67 @@ private fun ProfileStat(label: String, value: String, modifier: Modifier) {
         }
     }
 }
+@Composable
+private fun EquippedInventoryCard(
+    item: InventoryItem,
+    loading: Boolean,
+    onToggle: () -> Unit
+) {
+    ElevatedCard(
+        shape = RoundedCornerShape(20.dp),
+        modifier = Modifier.width(180.dp)
+    ) {
+        Column(
+            Modifier.padding(14.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Surface(
+                modifier = Modifier.size(54.dp),
+                shape = RoundedCornerShape(16.dp),
+                color = if (item.equipped) MaterialTheme.colorScheme.primaryContainer
+                else MaterialTheme.colorScheme.secondaryContainer
+            ) {
+                if (item.imageUrl.isNotBlank()) {
+                    AsyncImage(
+                        model = item.imageUrl,
+                        contentDescription = item.name,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
+                } else {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Icon(
+                            if (item.equipped) Icons.Default.CheckCircle else Icons.Default.AutoAwesome,
+                            null,
+                            Modifier.size(32.dp),
+                            tint = if (item.equipped) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.secondary
+                        )
+                    }
+                }
+            }
+            Text(item.name, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(friendlyItemType(item.type), style = MaterialTheme.typography.labelSmall)
+            FilledTonalButton(
+                onClick = onToggle,
+                enabled = !loading,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                if (loading) {
+                    CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                } else {
+                    Icon(
+                        if (item.equipped) Icons.Default.Close else Icons.Default.PlayArrow,
+                        null,
+                        Modifier.size(17.dp)
+                    )
+                }
+                Text(if (item.equipped) " Bỏ dùng" else " Dùng")
+            }
+        }
+    }
+}
+
 @Composable private fun InventoryCard(name: String, type: String) { ElevatedCard(shape = RoundedCornerShape(20.dp), modifier = Modifier.width(150.dp)) { Column(Modifier.padding(14.dp), horizontalAlignment = Alignment.CenterHorizontally) { Icon(Icons.Default.AutoAwesome, null, Modifier.size(36.dp), tint = MaterialTheme.colorScheme.secondary); Spacer(Modifier.height(8.dp)); Text(name, fontWeight = FontWeight.Bold, maxLines = 1); Text(type, style = MaterialTheme.typography.labelSmall) } } }
 @Composable private fun EmptyState(title: String, subtitle: String) { Column(Modifier.fillMaxWidth().padding(vertical = 54.dp), horizontalAlignment = Alignment.CenterHorizontally) { Icon(Icons.Default.Inbox, null, Modifier.size(60.dp), tint = MaterialTheme.colorScheme.primary); Spacer(Modifier.height(14.dp)); Text(title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Black); Text(subtitle, color = MaterialTheme.colorScheme.onSurfaceVariant) } }

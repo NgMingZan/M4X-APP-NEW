@@ -68,7 +68,10 @@ data class InventoryItem(
     val id: String,
     val itemId: String,
     val name: String,
-    val type: String
+    val type: String,
+    val equipped: Boolean = false,
+    val metadata: String = "{}",
+    val imageUrl: String = ""
 )
 data class ShopItem(
     val id: String,
@@ -377,15 +380,35 @@ class SupabaseApi(private val context: Context) {
     }
 
     suspend fun inventory(session: Session): Result<List<InventoryItem>> = io {
-        val a = get("/rest/v1/user_inventory?user_id=eq.${session.userId}&select=id,item_id,item_name,item_type&order=acquired_at.desc", session)
+        val a = get(
+            "/rest/v1/user_inventory?user_id=eq.${session.userId}" +
+                "&select=id,item_id,item_name,item_type,equipped,item_metadata,item_image_url" +
+                "&order=equipped.desc,acquired_at.desc",
+            session
+        )
         List(a.length()) { i -> a.getJSONObject(i).let {
             InventoryItem(
                 id = it.getString("id"),
                 itemId = it.optString("item_id"),
                 name = it.optString("item_name"),
-                type = it.optString("item_type")
+                type = it.optString("item_type"),
+                equipped = it.optBoolean("equipped"),
+                metadata = it.optJSONObject("item_metadata")?.toString() ?: "{}",
+                imageUrl = it.optString("item_image_url")
             )
         } }
+    }
+
+    suspend fun equipInventoryItem(session: Session, inventoryId: String): Result<Boolean> = io {
+        val body = JSONObject().put("p_inventory_id", inventoryId)
+        val req = base("${SupabaseConfig.url}/rest/v1/rpc/equip_inventory_item", session)
+            .post(body.toString().toRequestBody(jsonType)).build()
+        http.newCall(req).execute().use { res ->
+            val text = res.body?.string().orEmpty()
+            if (!res.isSuccessful) throw IOException(error(text, "Không thể sử dụng vật phẩm"))
+            val o = if (text.trim().startsWith("[")) JSONArray(text).getJSONObject(0) else JSONObject(text)
+            o.optBoolean("equipped")
+        }
     }
 
     suspend fun shopItems(session: Session): Result<List<ShopItem>> = io {

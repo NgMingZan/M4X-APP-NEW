@@ -1,8 +1,8 @@
 {
-  "versionCode": 41,
-  "versionName": "3.0.11",
+  "versionCode": 42,
+  "versionName": "3.0.12",
   "apkUrl": "https://github.com/NgMingZan/M4X-APP-NEW/releases/latest/download/M4X-Theme.apk",
-  "title": "M4X Theme v3.0.11",
-  "message": "Sửa giao diện hồ sơ và logo, thêm ảnh đại diện, Cửa hàng M4X và minigame kiếm coin.",
+  "title": "M4X Theme v3.0.12",
+  "message": "Cho phép sử dụng và bỏ sử dụng vật phẩm đã mua; áp dụng màu tên, khung avatar, nền hồ sơ, hiệu ứng và huy hiệu.",
   "forceUpdate": false
 }
