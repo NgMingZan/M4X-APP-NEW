@@ -1,4 +1,4 @@
-name: Build M4X Theme v3.0.1 Fixed APK
+name: Build M4X Theme v4 Hybrid OTA APK
 
 on:
   workflow_dispatch:
@@ -30,20 +30,21 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          WEB_APP_URL: ${{ secrets.WEB_APP_URL }}
         run: |
           test -n "$SUPABASE_URL" || (echo "Missing SUPABASE_URL secret" && exit 1)
           test -n "$SUPABASE_ANON_KEY" || (echo "Missing SUPABASE_ANON_KEY secret" && exit 1)
-          printf 'SUPABASE_URL=%s\nSUPABASE_ANON_KEY=%s\n' "$SUPABASE_URL" "$SUPABASE_ANON_KEY" > supabase.properties
+          printf 'SUPABASE_URL=%s\nSUPABASE_ANON_KEY=%s\nWEB_APP_URL=%s\n' "$SUPABASE_URL" "$SUPABASE_ANON_KEY" "$WEB_APP_URL" > supabase.properties
 
       - name: Build debug APK
         run: gradle --no-daemon :app:assembleDebug --stacktrace
 
       - name: Prepare APK
-        run: cp app/build/outputs/apk/debug/app-debug.apk M4X-Theme-v3.0.1-fixed.apk
+        run: cp app/build/outputs/apk/debug/app-debug.apk M4X-Theme-v4-hybrid-ota.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: M4X-Theme-v3.0.1-Fixed-APK
-          path: M4X-Theme-v3.0.1-fixed.apk
+          name: M4X-Theme-v4-Hybrid-OTA-APK
+          path: M4X-Theme-v4-hybrid-ota.apk
           retention-days: 14

@@ -198,10 +198,19 @@ class SupabaseApi(private val context: Context) {
         description: String,
         driveUrl: String,
         coinPrice: Int,
-        status: String
+        status: String,
+        previewUris: List<Uri> = emptyList()
     ): Result<Unit> = io {
         require(title.isNotBlank()) { "Tên theme không được để trống" }
         require(status in setOf("pending", "approved", "rejected")) { "Trạng thái không hợp lệ" }
+        val uploadedPreviews = previewUris.take(5).mapIndexed { index, uri ->
+            val original = fileName(context.contentResolver, uri)
+            val ext = original.substringAfterLast('.', "jpg").lowercase().take(5)
+            val path = "${session.userId}/admin-previews/${UUID.randomUUID()}_${index}.$ext"
+            uploadFile(session, uri, path)
+            "${SupabaseConfig.url}/storage/v1/object/public/themes/$path"
+        }
+
         val json = JSONObject()
             .put("title", title.trim())
             .put("description", description.trim())
@@ -209,6 +218,10 @@ class SupabaseApi(private val context: Context) {
             .put("coin_price", coinPrice.coerceAtLeast(0))
             .put("status", status)
             .put("updated_at", isoAfter(0))
+        if (uploadedPreviews.isNotEmpty()) {
+            json.put("preview_url", uploadedPreviews.first())
+            json.put("preview_urls", JSONArray(uploadedPreviews))
+        }
         patch("/rest/v1/themes?id=eq.$id", json.toString(), session)
     }
 
