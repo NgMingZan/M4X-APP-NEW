@@ -1,8 +1,12 @@
 package com.m4xtheme.app
 
+import android.annotation.SuppressLint
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.webkit.WebChromeClient
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -15,6 +19,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -33,6 +38,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
 import coil.compose.AsyncImage
 import com.m4xtheme.app.ui.theme.M4XTheme
 import kotlinx.coroutines.launch
@@ -45,7 +51,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-enum class Tab { HOME, UPLOAD, MY_THEMES, ADMIN, PROFILE }
+enum class Tab { HOME, QUEST, UPLOAD, WEB, PROFILE, ADMIN }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -76,47 +82,48 @@ private fun M4XApp() {
     Scaffold(
         contentWindowInsets = WindowInsets.safeDrawing,
         topBar = {
-            CenterAlignedTopAppBar(
+            TopAppBar(
                 title = {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("M4X Theme", fontWeight = FontWeight.ExtraBold)
-                        Text("HyperOS Community • v${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(42.dp).clip(RoundedCornerShape(14.dp)).background(Brush.linearGradient(listOf(Color(0xFF8B5CFF), Color(0xFF15C7E8)))), contentAlignment = Alignment.Center) {
+                            Text("M4X", fontWeight = FontWeight.Black, color = Color.White)
+                        }
+                        Spacer(Modifier.width(12.dp))
+                        Column { Text("M4X Theme", fontWeight = FontWeight.Black); Text("M4X COIN • Online v${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary) }
                     }
                 },
                 actions = {
-                    if (config.latestVersionCode > BuildConfig.VERSION_CODE) IconButton(onClick = {
-                        if (config.updateUrl.isNotBlank()) context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(config.updateUrl)))
-                    }) { Icon(Icons.Default.SystemUpdate, "Cập nhật", tint = MaterialTheme.colorScheme.tertiary) }
+                    if (isAdmin) IconButton(onClick = { tab = Tab.ADMIN }) { Icon(Icons.Default.AdminPanelSettings, "Admin") }
+                    IconButton(onClick = { message = "Bạn đang có ${profile?.points ?: 0} M4X COIN" }) { Icon(Icons.Default.Paid, "M4X COIN", tint = Color(0xFFFFC857)) }
                 }
             )
         },
         bottomBar = {
-            Surface(tonalElevation = 10.dp) {
-                NavigationBar(windowInsets = WindowInsets.navigationBars) {
-                    NavItem(tab == Tab.HOME, Icons.Default.Explore, "Khám phá") { tab = Tab.HOME }
-                    NavItem(tab == Tab.UPLOAD, Icons.Default.CloudUpload, "Đăng") { tab = Tab.UPLOAD }
-                    NavItem(tab == Tab.MY_THEMES, Icons.Default.Inventory2, "Kho") { tab = Tab.MY_THEMES }
-                    if (isAdmin) NavItem(tab == Tab.ADMIN, Icons.Default.AdminPanelSettings, "Admin") { tab = Tab.ADMIN }
-                    NavItem(tab == Tab.PROFILE, Icons.Default.Person, "Hồ sơ") { tab = Tab.PROFILE }
-                }
+            NavigationBar(windowInsets = WindowInsets.navigationBars) {
+                Nav(tab == Tab.HOME, Icons.Default.Home, "Khám phá") { tab = Tab.HOME }
+                Nav(tab == Tab.QUEST, Icons.Default.Map, "Nhiệm vụ") { tab = Tab.QUEST }
+                Nav(tab == Tab.UPLOAD, Icons.Default.AddCircle, "Đăng") { tab = Tab.UPLOAD }
+                Nav(tab == Tab.WEB, Icons.Default.Public, "M4X WEB") { tab = Tab.WEB }
+                Nav(tab == Tab.PROFILE, Icons.Default.Person, "Hồ sơ") { tab = Tab.PROFILE }
             }
         },
         snackbarHost = { SnackbarHost(snack) }
     ) { padding ->
         Box(Modifier.padding(padding).fillMaxSize()) {
             when (tab) {
-                Tab.HOME -> HomeScreen(api, session!!, config, onMessage = { message = it })
-                Tab.UPLOAD -> UploadScreen(api, session!!, onMessage = { message = it }, onDone = { tab = Tab.MY_THEMES })
-                Tab.MY_THEMES -> MyThemesScreen(api, session!!, onMessage = { message = it })
+                Tab.HOME -> HomeScreen(api, session!!, config, profile, onMessage = { message = it })
+                Tab.QUEST -> QuestHub(api, session!!, profile, onMessage = { message = it })
+                Tab.UPLOAD -> UploadScreen(api, session!!, onMessage = { message = it }, onDone = { tab = Tab.PROFILE })
+                Tab.WEB -> M4XWebScreen()
+                Tab.PROFILE -> ProfileScreen(api, session!!, profile, config, isAdmin, onOpenAdmin = { tab = Tab.ADMIN }, onLogout = { api.signOut(); session = null; profile = null }, onMessage = { message = it })
                 Tab.ADMIN -> AdminScreen(api, session!!, profile, onMessage = { message = it })
-                Tab.PROFILE -> ProfileScreen(api, session!!, profile, config, onLogout = { api.signOut(); session = null; profile = null }, onMessage = { message = it })
             }
         }
     }
 }
 
 @Composable
-private fun RowScope.NavItem(selected: Boolean, icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, click: () -> Unit) {
+private fun RowScope.Nav(selected: Boolean, icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, click: () -> Unit) {
     NavigationBarItem(selected = selected, onClick = click, icon = { Icon(icon, null) }, label = { Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis) })
 }
 
@@ -130,456 +137,228 @@ private fun AuthScreen(api: SupabaseApi, onSuccess: (Session) -> Unit, onMessage
     var displayName by remember { mutableStateOf("") }
     var loading by remember { mutableStateOf(false) }
     var authMessage by remember { mutableStateOf<String?>(null) }
-
     Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF111A31), Color(0xFF070B15))))) {
-        LazyColumn(
-            modifier = Modifier.fillMaxSize().imePadding(),
-            contentPadding = PaddingValues(horizontal = 24.dp, vertical = 32.dp),
-            verticalArrangement = Arrangement.Center
-        ) {
+        LazyColumn(Modifier.fillMaxSize().imePadding(), contentPadding = PaddingValues(24.dp), verticalArrangement = Arrangement.Center) {
             item {
-                Surface(shape = RoundedCornerShape(30.dp), color = MaterialTheme.colorScheme.primaryContainer, modifier = Modifier.size(76.dp)) {
-                    Box(contentAlignment = Alignment.Center) { Icon(Icons.Default.Palette, null, modifier = Modifier.size(42.dp), tint = MaterialTheme.colorScheme.primary) }
-                }
-                Spacer(Modifier.height(20.dp))
                 Text("M4X Theme", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Black)
-                Text(if (register) "Tạo hồ sơ nhà sáng tạo" else "Đăng nhập cộng đồng HyperOS & MIUI", color = MaterialTheme.colorScheme.secondary)
-                Spacer(Modifier.height(24.dp))
-                ElevatedCard(shape = RoundedCornerShape(28.dp), modifier = Modifier.fillMaxWidth()) {
+                Text(if (register) "Tạo tài khoản cộng đồng" else "Đăng nhập hệ thống M4X", color = MaterialTheme.colorScheme.secondary)
+                Spacer(Modifier.height(20.dp))
+                ElevatedCard(shape = RoundedCornerShape(28.dp)) {
                     Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         if (register) {
-                            OutlinedTextField(username, { username = it.trim() }, label = { Text("Tên đăng nhập") }, leadingIcon = { Icon(Icons.Default.AlternateEmail, null) }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                            OutlinedTextField(displayName, { displayName = it }, label = { Text("Tên hiển thị") }, leadingIcon = { Icon(Icons.Default.Badge, null) }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                            OutlinedTextField(username, { username = it.trim() }, label = { Text("Tên đăng nhập") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                            OutlinedTextField(displayName, { displayName = it }, label = { Text("Tên hiển thị") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
                         }
-                        OutlinedTextField(email, { email = it.trim() }, label = { Text("Email") }, leadingIcon = { Icon(Icons.Default.Email, null) }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email), modifier = Modifier.fillMaxWidth())
-                        OutlinedTextField(password, { password = it }, label = { Text("Mật khẩu") }, leadingIcon = { Icon(Icons.Default.Lock, null) }, singleLine = true, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
-                        Button(
-                            enabled = !loading && SupabaseConfig.configured,
-                            onClick = {
-                                authMessage = null; loading = true
-                                scope.launch {
-                                    val result = if (register) api.signUp(email, password, username, displayName) else api.signIn(email, password)
-                                    result.onSuccess(onSuccess).onFailure { authMessage = it.message ?: "Có lỗi xảy ra"; onMessage(authMessage!!) }
-                                    loading = false
-                                }
-                            },
-                            shape = RoundedCornerShape(18.dp),
-                            modifier = Modifier.fillMaxWidth().height(56.dp)
-                        ) {
+                        OutlinedTextField(email, { email = it.trim() }, label = { Text("Email") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email), modifier = Modifier.fillMaxWidth(), singleLine = true)
+                        OutlinedTextField(password, { password = it }, label = { Text("Mật khẩu") }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth(), singleLine = true)
+                        Button(enabled = !loading && SupabaseConfig.configured, onClick = {
+                            authMessage = null; loading = true
+                            scope.launch {
+                                val result = if (register) api.signUp(email, password, username, displayName) else api.signIn(email, password)
+                                result.onSuccess(onSuccess).onFailure { authMessage = it.message ?: "Có lỗi"; onMessage(authMessage!!) }
+                                loading = false
+                            }
+                        }, modifier = Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(18.dp)) {
                             if (loading) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-                            if (loading) Spacer(Modifier.width(10.dp))
-                            Text(if (loading) "Đang kết nối…" else if (register) "Đăng ký" else "Đăng nhập", fontWeight = FontWeight.Bold)
+                            Spacer(Modifier.width(8.dp)); Text(if (loading) "Đang xử lý…" else if (register) "Đăng ký" else "Đăng nhập", fontWeight = FontWeight.Bold)
                         }
                         authMessage?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                     }
                 }
-                TextButton(onClick = { register = !register }, modifier = Modifier.fillMaxWidth()) {
-                    Text(if (register) "Đã có tài khoản? Đăng nhập" else "Chưa có tài khoản? Đăng ký")
-                }
-                if (!SupabaseConfig.configured) Text("Chưa cấu hình Supabase trong GitHub Secrets", color = MaterialTheme.colorScheme.error)
+                TextButton(onClick = { register = !register }, modifier = Modifier.fillMaxWidth()) { Text(if (register) "Đã có tài khoản? Đăng nhập" else "Chưa có tài khoản? Đăng ký") }
             }
         }
     }
 }
 
 @Composable
-private fun HomeScreen(api: SupabaseApi, session: Session, config: RemoteConfig, onMessage: (String) -> Unit) {
+private fun HomeScreen(api: SupabaseApi, session: Session, config: RemoteConfig, profile: Profile?, onMessage: (String) -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var themes by remember { mutableStateOf<List<ThemeItem>>(emptyList()) }
     var query by remember { mutableStateOf("") }
     var category by remember { mutableStateOf("Tất cả") }
-    var loading by remember { mutableStateOf(true) }
-    val cats = listOf("Tất cả", "HyperOS", "MIUI", "Lockscreen", "Icons", "Control Center")
-
+    var events by remember { mutableStateOf<List<EventItem>>(emptyList()) }
     LaunchedEffect(Unit) {
-        api.approvedThemes(session).onSuccess { themes = it }.onFailure { onMessage(it.message ?: "Không tải được theme") }
-        loading = false
+        api.approvedThemes(session).onSuccess { themes = it }.onFailure { onMessage(it.message ?: "Lỗi tải theme") }
+        api.activeEvents(session).onSuccess { events = it }
     }
-
-    val filtered = themes.filter {
-        (query.isBlank() || it.title.contains(query, true) || it.description.contains(query, true)) &&
-            (category == "Tất cả" || it.category.contains(category, true) || it.osVersion.contains(category, true))
-    }
-
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
+    val filtered = themes.filter { (query.isBlank() || it.title.contains(query, true)) && (category == "Tất cả" || it.category.contains(category, true)) }
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         item {
-            Card(shape = RoundedCornerShape(30.dp), modifier = Modifier.fillMaxWidth()) {
-                Box(Modifier.background(Brush.linearGradient(listOf(Color(0xFF5B2EFF), Color(0xFF04B8D4)))).padding(24.dp)) {
+            Card(shape = RoundedCornerShape(32.dp)) {
+                Box(Modifier.fillMaxWidth().background(Brush.linearGradient(listOf(Color(0xFF5E36FF), Color(0xFF00BFD9)))).padding(22.dp)) {
                     Column {
-                        AssistChip(onClick = {}, label = { Text("M4X ONLINE") }, leadingIcon = { Icon(Icons.Default.AutoAwesome, null, Modifier.size(18.dp)) })
-                        Spacer(Modifier.height(16.dp))
-                        Text(config.homeBannerTitle, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Black)
-                        Text(config.homeBannerSubtitle, style = MaterialTheme.typography.titleMedium)
-                        Spacer(Modifier.height(12.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                            StatPill(Icons.Default.Download, "${themes.sumOf { it.downloads }} lượt tải")
-                            StatPill(Icons.Default.Collections, "${themes.size} theme")
+                        Text("M4X UNIVERSE", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Black)
+                        Spacer(Modifier.height(14.dp)); Text(config.homeBannerTitle, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Black)
+                        Text(config.homeBannerSubtitle)
+                        Spacer(Modifier.height(18.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            MetricPill(Icons.Default.Paid, "${profile?.points ?: 0} COIN")
+                            MetricPill(Icons.Default.Download, "${themes.sumOf { it.downloads }} lượt tải")
                         }
                     }
                 }
             }
         }
+        if (events.isNotEmpty()) item {
+            SectionTitle("Sự kiện đang diễn ra", "Cập nhật online bởi Admin")
+            EventBanner(events.first())
+        }
         item {
-            OutlinedTextField(
-                query, { query = it }, modifier = Modifier.fillMaxWidth(), singleLine = true,
-                leadingIcon = { Icon(Icons.Default.Search, null) }, placeholder = { Text("Tìm theme, tác giả, phong cách…") },
-                shape = RoundedCornerShape(22.dp)
-            )
+            OutlinedTextField(query, { query = it }, modifier = Modifier.fillMaxWidth(), placeholder = { Text("Tìm theme, tác giả, phong cách…") }, leadingIcon = { Icon(Icons.Default.Search, null) }, shape = RoundedCornerShape(22.dp), singleLine = true)
         }
         item {
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                cats.forEach { FilterChip(selected = category == it, onClick = { category = it }, label = { Text(it) }) }
+                listOf("Tất cả", "HyperOS", "MIUI", "Lockscreen", "Icons", "Control Center").forEach { FilterChip(selected = category == it, onClick = { category = it }, label = { Text(it) }) }
             }
         }
-        item {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) { Text("Theme nổi bật", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold); Text("Đã được Admin kiểm duyệt", color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                Icon(Icons.Default.Verified, null, tint = MaterialTheme.colorScheme.secondary)
-            }
-        }
-        if (loading) items(3) { ThemeSkeleton() }
-        else if (filtered.isEmpty()) item { EmptyState(Icons.Default.Inbox, "Chưa có theme phù hợp", "Hãy thử từ khóa hoặc bộ lọc khác.") }
+        item { SectionTitle("Theme nổi bật", "Mua bằng M4X COIN hoặc tải miễn phí") }
+        if (filtered.isEmpty()) item { EmptyState("Chưa có theme", "Theme được duyệt sẽ xuất hiện ở đây") }
         else items(filtered, key = { it.id }) { theme ->
-            ThemeCard(theme, onDownload = {
-                val url = theme.fileUrl.ifBlank { theme.driveUrl }
-                if (url.isBlank()) onMessage("Theme chưa có link tải") else {
-                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-                    scope.launch { api.incrementDownload(session, theme.id) }
+            ThemeCard(theme) {
+                if ((profile?.points ?: 0) < theme.coinPrice) onMessage("Bạn chưa đủ ${theme.coinPrice} M4X COIN")
+                else scope.launch {
+                    api.purchaseTheme(session, theme.id).onSuccess {
+                        val url = theme.fileUrl.ifBlank { theme.driveUrl }
+                        if (url.isNotBlank()) context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                    }.onFailure { onMessage(it.message ?: "Không thể mua theme") }
                 }
-            })
+            }
         }
     }
 }
 
-@Composable
-private fun StatPill(icon: androidx.compose.ui.graphics.vector.ImageVector, text: String) {
-    Surface(color = Color.White.copy(alpha = .16f), shape = RoundedCornerShape(50)) {
-        Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(icon, null, Modifier.size(16.dp)); Spacer(Modifier.width(6.dp)); Text(text, style = MaterialTheme.typography.labelMedium)
-        }
-    }
-}
+@Composable private fun MetricPill(icon: androidx.compose.ui.graphics.vector.ImageVector, text: String) { Surface(color = Color.White.copy(alpha = .16f), shape = CircleShape) { Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) { Icon(icon, null, Modifier.size(17.dp)); Spacer(Modifier.width(6.dp)); Text(text, fontWeight = FontWeight.Bold) } } }
+@Composable private fun SectionTitle(title: String, subtitle: String) { Column { Text(title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Black); Text(subtitle, color = MaterialTheme.colorScheme.onSurfaceVariant) } }
+@Composable private fun EventBanner(event: EventItem) { ElevatedCard(shape = RoundedCornerShape(26.dp)) { Box(Modifier.fillMaxWidth().background(Brush.linearGradient(listOf(Color(0xFFFF4E8A), Color(0xFF6E48FF)))).padding(20.dp)) { Column { Text(event.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black); Text(event.description); Spacer(Modifier.height(8.dp)); AssistChip(onClick = {}, label = { Text("${event.startAt.take(10)} → ${event.endAt.take(10)}") }) } } } }
 
 @Composable
-private fun ThemeCard(theme: ThemeItem, onDownload: () -> Unit) {
+private fun ThemeCard(theme: ThemeItem, onBuy: () -> Unit) {
     ElevatedCard(shape = RoundedCornerShape(26.dp), modifier = Modifier.fillMaxWidth()) {
         Column {
-            Box(Modifier.fillMaxWidth().height(190.dp).background(MaterialTheme.colorScheme.surfaceVariant)) {
-                if (theme.previewUrl.isNotBlank()) AsyncImage(model = theme.previewUrl, contentDescription = theme.title, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-                else Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Icon(Icons.Default.Palette, null, Modifier.size(56.dp), tint = MaterialTheme.colorScheme.primary) }
-                Surface(shape = RoundedCornerShape(bottomEnd = 18.dp), color = Color.Black.copy(alpha = .6f), modifier = Modifier.align(Alignment.TopStart)) {
-                    Text(theme.osVersion.ifBlank { "HyperOS / MIUI" }, Modifier.padding(horizontal = 12.dp, vertical = 7.dp), style = MaterialTheme.typography.labelMedium)
-                }
+            Box(Modifier.fillMaxWidth().height(180.dp).background(MaterialTheme.colorScheme.surfaceVariant)) {
+                if (theme.previewUrl.isNotBlank()) AsyncImage(theme.previewUrl, theme.title, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                else Icon(Icons.Default.Palette, null, Modifier.size(56.dp).align(Alignment.Center), tint = MaterialTheme.colorScheme.primary)
+                Surface(color = Color.Black.copy(alpha = .62f), shape = RoundedCornerShape(bottomEnd = 16.dp), modifier = Modifier.align(Alignment.TopStart)) { Text("${theme.coinPrice} M4X COIN", Modifier.padding(10.dp), fontWeight = FontWeight.Bold) }
             }
-            Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text(theme.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                Text(theme.description.ifBlank { "Theme cộng đồng M4X" }, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(theme.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
+                Text(theme.description.ifBlank { "Theme cộng đồng M4X" }, maxLines = 2, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Star, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.tertiary)
-                    Text(" ${"%.1f".format(theme.rating)}")
-                    Spacer(Modifier.width(16.dp))
-                    Icon(Icons.Default.Download, null, Modifier.size(18.dp))
-                    Text(" ${theme.downloads}")
-                    Spacer(Modifier.weight(1f))
-                    FilledTonalButton(onClick = onDownload, shape = RoundedCornerShape(16.dp)) { Icon(Icons.Default.Download, null); Spacer(Modifier.width(6.dp)); Text("Tải") }
+                    Icon(Icons.Default.Star, null, Modifier.size(18.dp), tint = Color(0xFFFFC857)); Text(" ${"%.1f".format(theme.rating)}")
+                    Spacer(Modifier.width(16.dp)); Icon(Icons.Default.Download, null, Modifier.size(18.dp)); Text(" ${theme.downloads}")
+                    Spacer(Modifier.weight(1f)); Button(onClick = onBuy, shape = RoundedCornerShape(16.dp)) { Text(if (theme.coinPrice > 0) "Mua" else "Tải") }
                 }
             }
         }
     }
 }
+
+@Composable
+private fun QuestHub(api: SupabaseApi, session: Session, profile: Profile?, onMessage: (String) -> Unit) {
+    val scope = rememberCoroutineScope()
+    var quests by remember { mutableStateOf<List<QuestItem>>(emptyList()) }
+    var gift by remember { mutableStateOf("") }
+    var leaderboard by remember { mutableStateOf<List<LeaderboardItem>>(emptyList()) }
+    LaunchedEffect(Unit) { api.activeQuests(session).onSuccess { quests = it }; api.weeklyLeaderboard(session).onSuccess { leaderboard = it } }
+    LazyColumn(Modifier.fillMaxSize().imePadding(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        item {
+            Card(shape = RoundedCornerShape(30.dp)) { Box(Modifier.background(Brush.linearGradient(listOf(Color(0xFF2B1C5B), Color(0xFF0E6670)))).padding(22.dp)) { Column { Text("M4X QUEST MAP", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Black); Text("Vượt từng khu vực, mở rương và đánh Boss cuối tuần"); Spacer(Modifier.height(12.dp)); LinearProgressIndicator(progress = { .35f }, modifier = Modifier.fillMaxWidth().height(10.dp).clip(CircleShape)); Spacer(Modifier.height(8.dp)); Text("Cấp 3 • ${profile?.points ?: 0} M4X COIN") } } }
+        }
+        item { SectionTitle("Nhiệm vụ hôm nay", "Hoàn thành để nhận M4X COIN") }
+        items(quests, key = { it.id }) { q ->
+            ElevatedCard(shape = RoundedCornerShape(22.dp)) { Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Default.TaskAlt, null, tint = MaterialTheme.colorScheme.secondary); Spacer(Modifier.width(12.dp)); Column(Modifier.weight(1f)) { Text(q.title, fontWeight = FontWeight.Bold); Text(q.description, color = MaterialTheme.colorScheme.onSurfaceVariant) }; AssistChip(onClick = { scope.launch { api.claimQuest(session, q.id).onSuccess { onMessage("Nhận ${q.reward} M4X COIN") }.onFailure { onMessage(it.message ?: "Không thể nhận") } } }, label = { Text("+${q.reward}") }) } }
+        }
+        item {
+            ElevatedCard(shape = RoundedCornerShape(24.dp)) { Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) { Text("Nhập Giftcode", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black); OutlinedTextField(gift, { gift = it.uppercase() }, label = { Text("Mã quà tặng") }, modifier = Modifier.fillMaxWidth(), singleLine = true); Button(onClick = { scope.launch { api.redeemGiftCode(session, gift).onSuccess { onMessage("Đã nhận $it M4X COIN"); gift = "" }.onFailure { onMessage(it.message ?: "Giftcode không hợp lệ") } } }, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.Redeem, null); Text(" Nhận quà") } } }
+        }
+        item { SectionTitle("Top thành viên tuần", "Thưởng từ 5.000 đến 50.000 M4X COIN") }
+        items(leaderboard.take(5)) { item -> LeaderRow(item) }
+        item {
+            ElevatedCard(shape = RoundedCornerShape(24.dp), modifier = Modifier.clickable { scope.launch { api.claimAirdrop(session).onSuccess { onMessage("Bạn săn được $it M4X COIN!") }.onFailure { onMessage(it.message ?: "Airdrop đã có người nhận") } } }) {
+                Row(Modifier.padding(18.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Default.RocketLaunch, null, tint = Color(0xFFFFC857)); Spacer(Modifier.width(12.dp)); Column { Text("Săn Airdrop điểm", fontWeight = FontWeight.Black); Text("Điểm rơi ngẫu nhiên: 100–2.000 M4X COIN") } }
+            }
+        }
+    }
+}
+
+@Composable private fun LeaderRow(item: LeaderboardItem) { ElevatedCard(shape = RoundedCornerShape(18.dp)) { Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) { Text("#${item.rank}", fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.secondary); Spacer(Modifier.width(12.dp)); Text(item.displayName, Modifier.weight(1f), fontWeight = FontWeight.Bold); Text("${item.score} điểm") } } }
 
 @Composable
 private fun UploadScreen(api: SupabaseApi, session: Session, onMessage: (String) -> Unit, onDone: () -> Unit) {
-    val scope = rememberCoroutineScope()
-    var fileUri by remember { mutableStateOf<Uri?>(null) }
-    var previewUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
-    var title by remember { mutableStateOf("") }
-    var description by remember { mutableStateOf("") }
-    var category by remember { mutableStateOf("HyperOS") }
-    var osVersion by remember { mutableStateOf("") }
-    var tags by remember { mutableStateOf("") }
-    var driveUrl by remember { mutableStateOf("") }
-    var note by remember { mutableStateOf("") }
-    var uploading by remember { mutableStateOf(false) }
-
+    val scope = rememberCoroutineScope(); val context = LocalContext.current
+    var fileUri by remember { mutableStateOf<Uri?>(null) }; var previewUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
+    var title by remember { mutableStateOf("") }; var description by remember { mutableStateOf("") }; var driveUrl by remember { mutableStateOf("") }; var price by remember { mutableStateOf("0") }; var uploading by remember { mutableStateOf(false) }
     val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { fileUri = it }
     val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { previewUris = it.take(5) }
-
-    LazyColumn(
-        modifier = Modifier.fillMaxSize().imePadding(),
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        item {
-            HeaderBlock("Đăng theme mới", "Gửi theme để Admin kiểm tra trước khi công khai", Icons.Default.CloudUpload)
-        }
-        item {
-            SectionCard("Thông tin theme", Icons.Default.Edit) {
-                OutlinedTextField(title, { title = it }, label = { Text("Tên theme") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-                OutlinedTextField(description, { description = it }, label = { Text("Mô tả chi tiết") }, modifier = Modifier.fillMaxWidth(), minLines = 3)
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    listOf("HyperOS", "MIUI", "Khác").forEach { FilterChip(selected = category == it, onClick = { category = it }, label = { Text(it) }) }
-                }
-                OutlinedTextField(osVersion, { osVersion = it }, label = { Text("Phiên bản hỗ trợ") }, placeholder = { Text("Ví dụ: HyperOS 2/3, MIUI 14") }, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(tags, { tags = it }, label = { Text("Thẻ") }, placeholder = { Text("Dark, iOS, Minimal…") }, modifier = Modifier.fillMaxWidth())
-            }
-        }
-        item {
-            SectionCard("Ảnh xem trước", Icons.Default.PhotoLibrary) {
-                Text("Tải tối đa 5 ảnh: ảnh bìa, màn hình khóa, màn hình chính, icon…", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                OutlinedButton(onClick = { imagePicker.launch(arrayOf("image/*")) }, modifier = Modifier.fillMaxWidth().height(54.dp)) {
-                    Icon(Icons.Default.AddPhotoAlternate, null); Spacer(Modifier.width(8.dp)); Text(if (previewUris.isEmpty()) "Chọn ảnh xem trước" else "Đã chọn ${previewUris.size} ảnh")
-                }
-                if (previewUris.isNotEmpty()) Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    previewUris.forEach { uri -> AsyncImage(model = uri, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.size(92.dp).clip(RoundedCornerShape(18.dp))) }
-                }
-            }
-        }
-        item {
-            SectionCard("Nguồn tải theme", Icons.Default.FolderZip) {
-                OutlinedButton(onClick = { filePicker.launch(arrayOf("application/zip", "application/octet-stream", "*/*")) }, modifier = Modifier.fillMaxWidth().height(54.dp)) {
-                    Icon(Icons.Default.AttachFile, null); Spacer(Modifier.width(8.dp)); Text(fileUri?.let { SupabaseApi.fileName(LocalContext.current.contentResolver, it) } ?: "Chọn file .mtz / .zip")
-                }
-                Row(verticalAlignment = Alignment.CenterVertically) { HorizontalDivider(Modifier.weight(1f)); Text("  HOẶC FILE QUÁ LỚN  ", style = MaterialTheme.typography.labelSmall); HorizontalDivider(Modifier.weight(1f)) }
-                OutlinedTextField(driveUrl, { driveUrl = it.trim() }, label = { Text("Link Google Drive") }, leadingIcon = { Icon(Icons.Default.Link, null) }, placeholder = { Text("https://drive.google.com/…") }, modifier = Modifier.fillMaxWidth())
-                Text("Chỉ cần file trực tiếp hoặc link Drive. Admin sẽ kiểm tra trước khi duyệt.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                OutlinedTextField(note, { note = it }, label = { Text("Ghi chú riêng cho Admin") }, modifier = Modifier.fillMaxWidth(), minLines = 2)
-            }
-        }
-        item {
-            Button(
-                enabled = !uploading && title.isNotBlank() && (fileUri != null || driveUrl.isNotBlank()),
-                onClick = {
-                    uploading = true
-                    scope.launch {
-                        api.uploadTheme(session, fileUri, previewUris, driveUrl, title, description, category, osVersion, tags, note)
-                            .onSuccess { onMessage("Đã gửi theme. Vui lòng chờ Admin duyệt."); onDone() }
-                            .onFailure { onMessage(it.message ?: "Không thể đăng theme") }
-                        uploading = false
-                    }
-                },
-                modifier = Modifier.fillMaxWidth().height(60.dp), shape = RoundedCornerShape(20.dp)
-            ) {
-                if (uploading) CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
-                if (uploading) Spacer(Modifier.width(10.dp))
-                Icon(Icons.Default.Send, null); Spacer(Modifier.width(8.dp)); Text(if (uploading) "Đang tải lên…" else "Gửi duyệt Admin", fontWeight = FontWeight.Bold)
-            }
-        }
+    LazyColumn(Modifier.fillMaxSize().imePadding(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        item { SectionTitle("Đăng theme mới", "File lớn có thể dùng Google Drive") }
+        item { FormCard("Thông tin theme", Icons.Default.Edit) { OutlinedTextField(title, { title = it }, label = { Text("Tên theme") }, modifier = Modifier.fillMaxWidth()); OutlinedTextField(description, { description = it }, label = { Text("Mô tả") }, minLines = 3, modifier = Modifier.fillMaxWidth()); OutlinedTextField(price, { price = it.filter(Char::isDigit) }, label = { Text("Giá M4X COIN") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth()) } }
+        item { FormCard("Ảnh xem trước", Icons.Default.PhotoLibrary) { OutlinedButton(onClick = { imagePicker.launch(arrayOf("image/*")) }, modifier = Modifier.fillMaxWidth()) { Text("Chọn tối đa 5 ảnh (${previewUris.size}/5)") }; Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) { previewUris.forEach { AsyncImage(it, null, contentScale = ContentScale.Crop, modifier = Modifier.size(92.dp).clip(RoundedCornerShape(16.dp))) } } } }
+        item { FormCard("Nguồn tải", Icons.Default.CloudUpload) { OutlinedButton(onClick = { filePicker.launch(arrayOf("*/*")) }, modifier = Modifier.fillMaxWidth()) { Text(fileUri?.let { SupabaseApi.fileName(context.contentResolver, it) } ?: "Chọn file .mtz / .zip") }; OutlinedTextField(driveUrl, { driveUrl = it.trim() }, label = { Text("Hoặc link Google Drive") }, modifier = Modifier.fillMaxWidth()) } }
+        item { Button(enabled = !uploading && title.isNotBlank() && (fileUri != null || driveUrl.isNotBlank()), onClick = { uploading = true; scope.launch { api.uploadTheme(session, fileUri, previewUris, driveUrl, title, description, "HyperOS", "", "", "", price.toIntOrNull() ?: 0).onSuccess { onMessage("Đã gửi Admin duyệt"); onDone() }.onFailure { onMessage(it.message ?: "Lỗi upload") }; uploading = false } }, modifier = Modifier.fillMaxWidth().height(58.dp), shape = RoundedCornerShape(18.dp)) { Text(if (uploading) "Đang tải…" else "Gửi duyệt Admin", fontWeight = FontWeight.Bold) } }
     }
 }
 
-@Composable
-private fun SectionCard(title: String, icon: androidx.compose.ui.graphics.vector.ImageVector, content: @Composable ColumnScope.() -> Unit) {
-    ElevatedCard(shape = RoundedCornerShape(26.dp), modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) { Icon(icon, null, tint = MaterialTheme.colorScheme.secondary); Spacer(Modifier.width(10.dp)); Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold) }
-            content()
-        }
-    }
-}
+@Composable private fun FormCard(title: String, icon: androidx.compose.ui.graphics.vector.ImageVector, content: @Composable ColumnScope.() -> Unit) { ElevatedCard(shape = RoundedCornerShape(24.dp)) { Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) { Row(verticalAlignment = Alignment.CenterVertically) { Icon(icon, null, tint = MaterialTheme.colorScheme.secondary); Spacer(Modifier.width(10.dp)); Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black) }; content() } } }
 
+@SuppressLint("SetJavaScriptEnabled")
 @Composable
-private fun HeaderBlock(title: String, subtitle: String, icon: androidx.compose.ui.graphics.vector.ImageVector) {
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Surface(shape = RoundedCornerShape(22.dp), color = MaterialTheme.colorScheme.primaryContainer, modifier = Modifier.size(64.dp)) { Box(contentAlignment = Alignment.Center) { Icon(icon, null, Modifier.size(34.dp), tint = MaterialTheme.colorScheme.primary) } }
-        Spacer(Modifier.width(14.dp))
-        Column(Modifier.weight(1f)) { Text(title, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Black); Text(subtitle, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-    }
-}
-
-@Composable
-private fun MyThemesScreen(api: SupabaseApi, session: Session, onMessage: (String) -> Unit) {
-    var themes by remember { mutableStateOf<List<ThemeItem>>(emptyList()) }
-    var loading by remember { mutableStateOf(true) }
-    LaunchedEffect(Unit) { api.myThemes(session).onSuccess { themes = it }.onFailure { onMessage(it.message ?: "Không tải được kho") }; loading = false }
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        item { HeaderBlock("Kho của tôi", "Theo dõi trạng thái và phản hồi duyệt", Icons.Default.Inventory2) }
-        if (loading) items(3) { ThemeSkeleton() }
-        else if (themes.isEmpty()) item { EmptyState(Icons.Default.Inventory2, "Bạn chưa đăng theme", "Mở mục Đăng để gửi theme đầu tiên.") }
-        else items(themes, key = { it.id }) { ThemeStatusCard(it) }
-    }
-}
-
-@Composable
-private fun ThemeStatusCard(theme: ThemeItem) {
-    ElevatedCard(shape = RoundedCornerShape(24.dp), modifier = Modifier.fillMaxWidth()) {
-        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-            AsyncImage(model = theme.previewUrl, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.size(92.dp).clip(RoundedCornerShape(18.dp)).background(MaterialTheme.colorScheme.surfaceVariant))
-            Spacer(Modifier.width(14.dp))
-            Column(Modifier.weight(1f)) {
-                Text(theme.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 2)
-                Text(theme.osVersion, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Spacer(Modifier.height(6.dp))
-                StatusChip(theme.status)
-                if (theme.status == "rejected" && theme.rejectReason.isNotBlank()) Text("Lý do: ${theme.rejectReason}", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-            }
-        }
-    }
-}
-
-@Composable
-private fun StatusChip(status: String) {
-    val (text, icon, color) = when (status) {
-        "approved" -> Triple("Đã duyệt", Icons.Default.CheckCircle, Color(0xFF45D483))
-        "rejected" -> Triple("Từ chối", Icons.Default.Cancel, MaterialTheme.colorScheme.error)
-        else -> Triple("Chờ duyệt", Icons.Default.Schedule, MaterialTheme.colorScheme.tertiary)
-    }
-    Surface(shape = RoundedCornerShape(50), color = color.copy(alpha = .15f)) {
-        Row(Modifier.padding(horizontal = 10.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) { Icon(icon, null, Modifier.size(16.dp), tint = color); Spacer(Modifier.width(5.dp)); Text(text, color = color, style = MaterialTheme.typography.labelMedium) }
+private fun M4XWebScreen() {
+    var input by remember { mutableStateOf("https://") }; var current by remember { mutableStateOf("") }
+    Column(Modifier.fillMaxSize().imePadding()) {
+        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) { OutlinedTextField(input, { input = it }, modifier = Modifier.weight(1f), singleLine = true, label = { Text("Dán bất kỳ link web") }); Spacer(Modifier.width(8.dp)); IconButton(onClick = { current = if (input.startsWith("http")) input else "https://$input" }) { Icon(Icons.Default.ArrowForward, null) } }
+        if (current.isBlank()) EmptyState("M4X WEB", "Dán link để mở trang web ngay trong app") else AndroidView(factory = { ctx -> WebView(ctx).apply { settings.javaScriptEnabled = true; settings.domStorageEnabled = true; settings.allowFileAccess = true; webViewClient = WebViewClient(); webChromeClient = WebChromeClient(); loadUrl(current) } }, update = { if (it.url != current) it.loadUrl(current) }, modifier = Modifier.fillMaxSize())
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun AdminScreen(api: SupabaseApi, session: Session, profile: Profile?, onMessage: (String) -> Unit) {
-    val scope = rememberCoroutineScope()
-    var selected by remember { mutableIntStateOf(0) }
-    var pending by remember { mutableStateOf<List<ThemeItem>>(emptyList()) }
-    var users by remember { mutableStateOf<List<Profile>>(emptyList()) }
-    suspend fun reload() {
-        api.pendingThemes(session).onSuccess { pending = it }.onFailure { onMessage(it.message ?: "Lỗi tải theme") }
-        api.users(session).onSuccess { users = it }
-    }
+    val scope = rememberCoroutineScope(); var selected by remember { mutableIntStateOf(0) }; var pending by remember { mutableStateOf<List<ThemeItem>>(emptyList()) }; var users by remember { mutableStateOf<List<Profile>>(emptyList()) }; var events by remember { mutableStateOf<List<EventItem>>(emptyList()) }
+    fun reload() { scope.launch { api.pendingThemes(session).onSuccess { pending = it }; api.users(session).onSuccess { users = it }; api.allEvents(session).onSuccess { events = it } } }
     LaunchedEffect(Unit) { reload() }
-
     Column(Modifier.fillMaxSize()) {
-        Column(Modifier.padding(16.dp)) {
-            HeaderBlock("Bảng quản trị", "Duyệt theme, quản lý người dùng và quyền hạn", Icons.Default.AdminPanelSettings)
-            Spacer(Modifier.height(16.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                AdminMetric("Chờ duyệt", pending.size.toString(), Icons.Default.Schedule, Modifier.weight(1f))
-                AdminMetric("Người dùng", users.size.toString(), Icons.Default.Group, Modifier.weight(1f))
-            }
-            Spacer(Modifier.height(14.dp))
-            PrimaryTabRow(selectedTabIndex = selected) {
-                Tab(selected = selected == 0, onClick = { selected = 0 }, text = { Text("Chờ duyệt (${pending.size})") })
-                Tab(selected = selected == 1, onClick = { selected = 1 }, text = { Text("Người dùng") })
-            }
-        }
-        if (selected == 0) LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            if (pending.isEmpty()) item { EmptyState(Icons.Default.Verified, "Không có theme chờ duyệt", "Theme mới sẽ xuất hiện tại đây.") }
-            else items(pending, key = { it.id }) { theme ->
-                ElevatedCard(shape = RoundedCornerShape(24.dp)) {
-                    Column {
-                        if (theme.previewUrl.isNotBlank()) AsyncImage(model = theme.previewUrl, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxWidth().height(170.dp))
-                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text(theme.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                            Text(theme.description, maxLines = 3, overflow = TextOverflow.Ellipsis)
-                            if (theme.driveUrl.isNotBlank()) Text("Có link Google Drive", color = MaterialTheme.colorScheme.secondary)
-                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                Button(onClick = { scope.launch { api.reviewTheme(session, theme.id, true).onSuccess { reload() }.onFailure { onMessage(it.message ?: "Lỗi") } } }, modifier = Modifier.weight(1f)) { Icon(Icons.Default.Check, null); Text(" Duyệt") }
-                                OutlinedButton(onClick = { scope.launch { api.reviewTheme(session, theme.id, false, "Cần bổ sung hoặc chỉnh sửa nội dung").onSuccess { reload() }.onFailure { onMessage(it.message ?: "Lỗi") } } }, modifier = Modifier.weight(1f)) { Icon(Icons.Default.Close, null); Text(" Từ chối") }
-                            }
-                        }
-                    }
-                }
-            }
-        } else LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            items(users, key = { it.id }) { user ->
-                ElevatedCard(shape = RoundedCornerShape(20.dp)) {
-                    Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Surface(shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.primaryContainer, modifier = Modifier.size(50.dp)) { Box(contentAlignment = Alignment.Center) { Text(user.displayName.take(1).uppercase().ifBlank { "M" }, fontWeight = FontWeight.Black) } }
-                        Spacer(Modifier.width(12.dp))
-                        Column(Modifier.weight(1f)) { Text(user.displayName.ifBlank { user.username }, fontWeight = FontWeight.Bold); Text("@${user.username} • ${user.role}", color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                        if (profile?.role == "super_admin" && user.role != "super_admin") {
-                            TextButton(onClick = { scope.launch { api.setRole(session, user.id, if (user.role == "admin") "user" else "admin").onSuccess { reload() }.onFailure { onMessage(it.message ?: "Lỗi") } } }) { Text(if (user.role == "admin") "Hạ quyền" else "Lên Admin") }
-                        }
-                    }
-                }
+        LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            item { SectionTitle("Trung tâm điều hành", "Quản lý toàn bộ M4X Universe") }
+            item { Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) { AdminMetric("Chờ duyệt", pending.size, Icons.Default.PendingActions, Modifier.weight(1f)); AdminMetric("Người dùng", users.size, Icons.Default.Groups, Modifier.weight(1f)); AdminMetric("Sự kiện", events.size, Icons.Default.Celebration, Modifier.weight(1f)) } }
+            item { Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) { listOf("Tổng quan", "Theme", "Sự kiện", "Giftcode", "Người dùng").forEachIndexed { i, s -> FilterChip(selected = selected == i, onClick = { selected = i }, label = { Text(s) }) } } }
+            when (selected) {
+                0 -> item { FormCard("Công cụ nhanh", Icons.Default.Dashboard) { AdminAction("Phát hành Airdrop", Icons.Default.RocketLaunch) { scope.launch { api.createAirdrop(session).onSuccess { onMessage("Đã phát hành Airdrop") }.onFailure { onMessage(it.message ?: "Lỗi") } } }; AdminAction("Tuần sinh nhật Admin 01/08–07/08", Icons.Default.Cake) { scope.launch { api.publishBirthdayWeek(session).onSuccess { onMessage("Đã phát hành tuần sinh nhật") }.onFailure { onMessage(it.message ?: "Lỗi") } } }; AdminAction("Mở Boss cộng đồng", Icons.Default.SportsEsports) { onMessage("Boss cộng đồng đã được xếp lịch online") } } }
+                1 -> if (pending.isEmpty()) item { EmptyState("Không có theme chờ duyệt", "Theme mới sẽ xuất hiện tại đây") } else items(pending, key = { it.id }) { t -> ReviewCard(t, onApprove = { scope.launch { api.reviewTheme(session, t.id, true).onSuccess { reload() } } }, onReject = { scope.launch { api.reviewTheme(session, t.id, false, "Cần bổ sung nội dung").onSuccess { reload() } } }) }
+                2 -> { item { AdminCreateEvent(api, session, onMessage) }; items(events) { EventBanner(it) } }
+                3 -> item { AdminGiftCode(api, session, onMessage) }
+                4 -> items(users, key = { it.id }) { u -> UserAdminRow(u, profile?.role == "super_admin") { scope.launch { api.setRole(session, u.id, if (u.role == "admin") "user" else "admin").onSuccess { reload() }.onFailure { onMessage(it.message ?: "Lỗi") } } } }
             }
         }
     }
 }
 
-@Composable
-private fun AdminMetric(label: String, value: String, icon: androidx.compose.ui.graphics.vector.ImageVector, modifier: Modifier = Modifier) {
-    ElevatedCard(modifier, shape = RoundedCornerShape(22.dp)) {
-        Column(Modifier.padding(16.dp)) { Icon(icon, null, tint = MaterialTheme.colorScheme.secondary); Text(value, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Black); Text(label, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-    }
-}
+@Composable private fun AdminMetric(label: String, value: Int, icon: androidx.compose.ui.graphics.vector.ImageVector, modifier: Modifier) { ElevatedCard(modifier, shape = RoundedCornerShape(20.dp)) { Column(Modifier.padding(14.dp)) { Icon(icon, null, tint = MaterialTheme.colorScheme.secondary); Text(value.toString(), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Black); Text(label, style = MaterialTheme.typography.labelMedium) } } }
+@Composable private fun AdminAction(title: String, icon: androidx.compose.ui.graphics.vector.ImageVector, click: () -> Unit) { ListItem(headlineContent = { Text(title, fontWeight = FontWeight.Bold) }, leadingContent = { Icon(icon, null) }, trailingContent = { Icon(Icons.Default.ChevronRight, null) }, modifier = Modifier.clickable(onClick = click)) }
+@Composable private fun ReviewCard(t: ThemeItem, onApprove: () -> Unit, onReject: () -> Unit) { ElevatedCard(shape = RoundedCornerShape(22.dp)) { Column { if (t.previewUrl.isNotBlank()) AsyncImage(t.previewUrl, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxWidth().height(150.dp)); Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) { Text(t.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black); Text("Giá đề xuất: ${t.coinPrice} M4X COIN"); Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { Button(onClick = onApprove, modifier = Modifier.weight(1f)) { Text("Duyệt") }; OutlinedButton(onClick = onReject, modifier = Modifier.weight(1f)) { Text("Từ chối") } } } } } }
 
 @Composable
-private fun ProfileScreen(api: SupabaseApi, session: Session, profile: Profile?, config: RemoteConfig, onLogout: () -> Unit, onMessage: (String) -> Unit) {
-    var mine by remember { mutableStateOf<List<ThemeItem>>(emptyList()) }
-    LaunchedEffect(Unit) { api.myThemes(session).onSuccess { mine = it }.onFailure { onMessage(it.message ?: "Lỗi tải thống kê") } }
-    val approved = mine.count { it.status == "approved" }
-    val pending = mine.count { it.status == "pending" }
-    val totalDownloads = mine.sumOf { it.downloads }
+private fun AdminCreateEvent(api: SupabaseApi, session: Session, onMessage: (String) -> Unit) { val scope = rememberCoroutineScope(); var title by remember { mutableStateOf("") }; var desc by remember { mutableStateOf("") }; FormCard("Phát hành sự kiện online", Icons.Default.Celebration) { OutlinedTextField(title, { title = it }, label = { Text("Tên sự kiện") }, modifier = Modifier.fillMaxWidth()); OutlinedTextField(desc, { desc = it }, label = { Text("Nội dung") }, modifier = Modifier.fillMaxWidth()); Button(onClick = { scope.launch { api.createEvent(session, title, desc).onSuccess { onMessage("Đã phát hành sự kiện") }.onFailure { onMessage(it.message ?: "Lỗi") } } }, modifier = Modifier.fillMaxWidth()) { Text("Phát hành ngay") } } }
+@Composable
+private fun AdminGiftCode(api: SupabaseApi, session: Session, onMessage: (String) -> Unit) { val scope = rememberCoroutineScope(); var code by remember { mutableStateOf("") }; var reward by remember { mutableStateOf("408") }; FormCard("Tạo Giftcode", Icons.Default.Redeem) { OutlinedTextField(code, { code = it.uppercase() }, label = { Text("Mã") }, modifier = Modifier.fillMaxWidth()); OutlinedTextField(reward, { reward = it.filter(Char::isDigit) }, label = { Text("M4X COIN") }, modifier = Modifier.fillMaxWidth()); Button(onClick = { scope.launch { api.createGiftCode(session, code, reward.toIntOrNull() ?: 0).onSuccess { onMessage("Đã tạo Giftcode") }.onFailure { onMessage(it.message ?: "Lỗi") } } }, modifier = Modifier.fillMaxWidth()) { Text("Tạo mã") } } }
+@Composable private fun UserAdminRow(u: Profile, canEdit: Boolean, click: () -> Unit) { ElevatedCard(shape = RoundedCornerShape(18.dp)) { Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) { Box(Modifier.size(46.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primaryContainer), contentAlignment = Alignment.Center) { Text(u.displayName.take(1).uppercase().ifBlank { "M" }, fontWeight = FontWeight.Black) }; Spacer(Modifier.width(12.dp)); Column(Modifier.weight(1f)) { Text(u.displayName.ifBlank { u.username }, fontWeight = FontWeight.Bold); Text("@${u.username} • ${u.role} • ${u.points} coin", color = MaterialTheme.colorScheme.onSurfaceVariant) }; if (canEdit && u.role != "super_admin") TextButton(onClick = click) { Text(if (u.role == "admin") "Hạ quyền" else "Lên Admin") } } } }
 
+@Composable
+private fun ProfileScreen(api: SupabaseApi, session: Session, profile: Profile?, config: RemoteConfig, isAdmin: Boolean, onOpenAdmin: () -> Unit, onLogout: () -> Unit, onMessage: (String) -> Unit) {
+    var mine by remember { mutableStateOf<List<ThemeItem>>(emptyList()) }; var inventory by remember { mutableStateOf<List<InventoryItem>>(emptyList()) }
+    LaunchedEffect(Unit) { api.myThemes(session).onSuccess { mine = it }; api.inventory(session).onSuccess { inventory = it } }
+    val downloads = mine.sumOf { it.downloads }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        item {
-            Card(shape = RoundedCornerShape(30.dp), modifier = Modifier.fillMaxWidth()) {
-                Box(Modifier.background(Brush.linearGradient(listOf(Color(0xFF39215E), Color(0xFF123A52)))).padding(22.dp)) {
-                    Column {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Surface(shape = RoundedCornerShape(26.dp), color = Color.White.copy(alpha = .14f), modifier = Modifier.size(82.dp)) { Box(contentAlignment = Alignment.Center) { Icon(Icons.Default.Person, null, Modifier.size(48.dp), tint = MaterialTheme.colorScheme.primary) } }
-                            Spacer(Modifier.width(16.dp))
-                            Column(Modifier.weight(1f)) {
-                                Text(profile?.displayName?.ifBlank { "M4X Member" } ?: "M4X Member", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Black, maxLines = 2)
-                                Text("@${profile?.username.orEmpty()}", color = MaterialTheme.colorScheme.secondary)
-                                Spacer(Modifier.height(8.dp)); StatusChip(if (profile?.role == "super_admin") "approved" else "pending")
-                            }
-                        }
-                        Spacer(Modifier.height(20.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            ProfileStat("Điểm", profile?.points?.toString() ?: "0", Modifier.weight(1f))
-                            ProfileStat("Theme", mine.size.toString(), Modifier.weight(1f))
-                            ProfileStat("Lượt tải", totalDownloads.toString(), Modifier.weight(1f))
-                        }
-                    }
-                }
-            }
-        }
-        item {
-            SectionCard("Hoạt động", Icons.Default.Insights) {
-                SettingsRow(Icons.Default.Verified, "Đã duyệt", "$approved theme")
-                SettingsRow(Icons.Default.Schedule, "Đang chờ", "$pending theme")
-                SettingsRow(Icons.Default.AdminPanelSettings, "Vai trò", profile?.role ?: "user")
-            }
-        }
-        item {
-            SectionCard("Cập nhật online", Icons.Default.CloudSync) {
-                Text("Theme, banner, trạng thái duyệt và quyền Admin được đồng bộ trực tiếp từ Supabase.")
-                SettingsRow(Icons.Default.Android, "Phiên bản hiện tại", BuildConfig.VERSION_NAME)
-                SettingsRow(Icons.Default.SystemUpdate, "Phiên bản online", config.latestVersionName.ifBlank { BuildConfig.VERSION_NAME })
-            }
-        }
-        item {
-            OutlinedButton(onClick = onLogout, modifier = Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(20.dp)) { Icon(Icons.Default.Logout, null); Spacer(Modifier.width(8.dp)); Text("Đăng xuất", fontWeight = FontWeight.Bold) }
-        }
+        item { Card(shape = RoundedCornerShape(32.dp)) { Box(Modifier.background(Brush.linearGradient(listOf(Color(0xFF4A247B), Color(0xFF075D72)))).padding(22.dp)) { Column { Row(verticalAlignment = Alignment.CenterVertically) { Box(Modifier.size(88.dp).clip(CircleShape).background(Color.White.copy(alpha = .14f)), contentAlignment = Alignment.Center) { Icon(Icons.Default.Person, null, Modifier.size(52.dp)) }; Spacer(Modifier.width(16.dp)); Column(Modifier.weight(1f)) { Row(verticalAlignment = Alignment.CenterVertically) { Text(profile?.displayName?.ifBlank { "M4X Member" } ?: "M4X Member", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Black); Spacer(Modifier.width(6.dp)); Icon(Icons.Default.Verified, null, tint = Color(0xFF32D6FF)) }; Text("@${profile?.username}"); Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) { AssistChip(onClick = {}, label = { Text("VIP 1") }); AssistChip(onClick = {}, label = { Text("LV.3") }); AssistChip(onClick = {}, label = { Text(profile?.role ?: "user") }) } } }; Spacer(Modifier.height(18.dp)); Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { ProfileStat("M4X COIN", "${profile?.points ?: 0}", Modifier.weight(1f)); ProfileStat("Theme", mine.size.toString(), Modifier.weight(1f)); ProfileStat("Lượt tải", downloads.toString(), Modifier.weight(1f)) } } } } }
+        item { SectionTitle("Kho vật phẩm cá nhân", "Khung avatar, màu tên, hiệu ứng, VIP và vật phẩm đã mua") }
+        item { Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(10.dp)) { if (inventory.isEmpty()) repeat(4) { InventoryCard("Vật phẩm ${it + 1}", "Chưa sở hữu") } else inventory.forEach { InventoryCard(it.name, it.type) } } }
+        item { FormCard("Thành tích", Icons.Default.EmojiEvents) { Text("Theme đã đăng: ${mine.size}"); Text("Tổng lượt tải: $downloads"); Text("Huy hiệu: Khách mời sinh nhật ADMIN"); Text("Xếp hạng tuần: Đang cập nhật online") } }
+        if (isAdmin) item { Button(onClick = onOpenAdmin, modifier = Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(18.dp)) { Icon(Icons.Default.AdminPanelSettings, null); Text(" Mở trung tâm Admin") } }
+        item { OutlinedButton(onClick = onLogout, modifier = Modifier.fillMaxWidth().height(54.dp)) { Icon(Icons.Default.Logout, null); Text(" Đăng xuất") } }
     }
 }
-
-@Composable
-private fun ProfileStat(label: String, value: String, modifier: Modifier = Modifier) {
-    Surface(modifier, shape = RoundedCornerShape(18.dp), color = Color.White.copy(alpha = .1f)) {
-        Column(Modifier.padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally) { Text(value, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black); Text(label, style = MaterialTheme.typography.labelMedium) }
-    }
-}
-
-@Composable
-private fun SettingsRow(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, value: String) {
-    Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-        Icon(icon, null, tint = MaterialTheme.colorScheme.secondary); Spacer(Modifier.width(12.dp)); Text(title, Modifier.weight(1f)); Text(value, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-    }
-}
-
-@Composable
-private fun EmptyState(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, subtitle: String) {
-    Column(Modifier.fillMaxWidth().padding(vertical = 56.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        Surface(shape = RoundedCornerShape(26.dp), color = MaterialTheme.colorScheme.primaryContainer, modifier = Modifier.size(82.dp)) { Box(contentAlignment = Alignment.Center) { Icon(icon, null, Modifier.size(44.dp), tint = MaterialTheme.colorScheme.primary) } }
-        Spacer(Modifier.height(16.dp)); Text(title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold); Text(subtitle, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
-}
-
-@Composable
-private fun ThemeSkeleton() {
-    ElevatedCard(shape = RoundedCornerShape(26.dp), modifier = Modifier.fillMaxWidth()) {
-        Column { Box(Modifier.fillMaxWidth().height(170.dp).background(MaterialTheme.colorScheme.surfaceVariant)); Column(Modifier.padding(16.dp)) { Box(Modifier.fillMaxWidth(.65f).height(22.dp).background(MaterialTheme.colorScheme.surfaceVariant)); Spacer(Modifier.height(10.dp)); Box(Modifier.fillMaxWidth().height(16.dp).background(MaterialTheme.colorScheme.surfaceVariant)) } }
-    }
-}
+@Composable private fun ProfileStat(label: String, value: String, modifier: Modifier) { Surface(modifier, color = Color.White.copy(alpha = .1f), shape = RoundedCornerShape(16.dp)) { Column(Modifier.padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally) { Text(value, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black); Text(label, style = MaterialTheme.typography.labelSmall) } } }
+@Composable private fun InventoryCard(name: String, type: String) { ElevatedCard(shape = RoundedCornerShape(20.dp), modifier = Modifier.width(150.dp)) { Column(Modifier.padding(14.dp), horizontalAlignment = Alignment.CenterHorizontally) { Icon(Icons.Default.AutoAwesome, null, Modifier.size(36.dp), tint = MaterialTheme.colorScheme.secondary); Spacer(Modifier.height(8.dp)); Text(name, fontWeight = FontWeight.Bold, maxLines = 1); Text(type, style = MaterialTheme.typography.labelSmall) } } }
+@Composable private fun EmptyState(title: String, subtitle: String) { Column(Modifier.fillMaxWidth().padding(vertical = 54.dp), horizontalAlignment = Alignment.CenterHorizontally) { Icon(Icons.Default.Inbox, null, Modifier.size(60.dp), tint = MaterialTheme.colorScheme.primary); Spacer(Modifier.height(14.dp)); Text(title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Black); Text(subtitle, color = MaterialTheme.colorScheme.onSurfaceVariant) } }

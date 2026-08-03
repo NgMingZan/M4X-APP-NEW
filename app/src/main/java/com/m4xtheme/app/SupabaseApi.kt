@@ -42,8 +42,15 @@ data class ThemeItem(
     val rejectReason: String,
     val downloads: Long,
     val rating: Double,
-    val createdAt: String
+    val createdAt: String,
+    val coinPrice: Int = 0
 )
+
+data class EventItem(val id: String, val title: String, val description: String, val startAt: String, val endAt: String, val active: Boolean)
+data class QuestItem(val id: String, val title: String, val description: String, val reward: Int)
+data class LeaderboardItem(val rank: Int, val displayName: String, val score: Long)
+data class InventoryItem(val id: String, val name: String, val type: String)
+
 data class RemoteConfig(
     val minVersionCode: Int = 0,
     val latestVersionCode: Int = 0,
@@ -131,7 +138,8 @@ class SupabaseApi(private val context: Context) {
         category: String,
         osVersion: String,
         tags: String,
-        adminNote: String
+        adminNote: String,
+        coinPrice: Int = 0
     ): Result<Unit> = io {
         require(title.isNotBlank()) { "Chưa nhập tên theme" }
         require(fileUri != null || driveUrl.isNotBlank()) { "Hãy chọn file hoặc dán link Google Drive" }
@@ -168,6 +176,7 @@ class SupabaseApi(private val context: Context) {
             put("preview_url", previews.firstOrNull().orEmpty())
             put("preview_urls", JSONArray(previews))
             put("status", "pending")
+            put("coin_price", coinPrice.coerceAtLeast(0))
         }
         post("/rest/v1/themes", JSONArray().put(row).toString(), session)
     }
@@ -191,6 +200,76 @@ class SupabaseApi(private val context: Context) {
     suspend fun incrementDownload(session: Session, themeId: String): Result<Unit> = io {
         val body = JSONObject().put("theme_id", themeId)
         execute(base("${SupabaseConfig.url}/rest/v1/rpc/increment_theme_download", session).post(body.toString().toRequestBody(jsonType)).build())
+    }
+
+    suspend fun purchaseTheme(session: Session, themeId: String): Result<Unit> = io {
+        val body = JSONObject().put("theme_id", themeId)
+        execute(base("${SupabaseConfig.url}/rest/v1/rpc/purchase_theme", session).post(body.toString().toRequestBody(jsonType)).build())
+    }
+
+    suspend fun activeEvents(session: Session): Result<List<EventItem>> = io {
+        parseEvents(get("/rest/v1/events?active=eq.true&select=*&order=start_at.desc", session))
+    }
+
+    suspend fun allEvents(session: Session): Result<List<EventItem>> = io {
+        parseEvents(get("/rest/v1/events?select=*&order=created_at.desc", session))
+    }
+
+    suspend fun createEvent(session: Session, title: String, description: String): Result<Unit> = io {
+        require(title.isNotBlank()) { "Chưa nhập tên sự kiện" }
+        val row = JSONObject().put("title", title).put("description", description).put("active", true)
+            .put("start_at", isoAfter(0)).put("end_at", isoAfter(604800))
+        post("/rest/v1/events", JSONArray().put(row).toString(), session)
+    }
+
+    suspend fun activeQuests(session: Session): Result<List<QuestItem>> = io {
+        val a = get("/rest/v1/quests?active=eq.true&select=id,title,description,reward&order=sort_order.asc", session)
+        List(a.length()) { i -> a.getJSONObject(i).let { QuestItem(it.getString("id"), it.optString("title"), it.optString("description"), it.optInt("reward")) } }
+    }
+
+    suspend fun claimQuest(session: Session, questId: String): Result<Unit> = io {
+        val body = JSONObject().put("quest_id", questId)
+        execute(base("${SupabaseConfig.url}/rest/v1/rpc/claim_quest", session).post(body.toString().toRequestBody(jsonType)).build())
+    }
+
+    suspend fun redeemGiftCode(session: Session, code: String): Result<Int> = io {
+        require(code.isNotBlank()) { "Chưa nhập Giftcode" }
+        val body = JSONObject().put("gift_code", code.trim().uppercase())
+        val req = base("${SupabaseConfig.url}/rest/v1/rpc/redeem_giftcode", session).post(body.toString().toRequestBody(jsonType)).build()
+        http.newCall(req).execute().use { res ->
+            val text = res.body?.string().orEmpty(); if (!res.isSuccessful) throw IOException(error(text, "Giftcode không hợp lệ")); text.trim().trim('"').toIntOrNull() ?: 0
+        }
+    }
+
+    suspend fun createGiftCode(session: Session, code: String, reward: Int): Result<Unit> = io {
+        require(code.isNotBlank() && reward > 0) { "Mã hoặc phần thưởng không hợp lệ" }
+        val row = JSONObject().put("code", code.trim().uppercase()).put("reward", reward).put("max_uses", 100).put("active", true)
+        post("/rest/v1/giftcodes", JSONArray().put(row).toString(), session)
+    }
+
+    suspend fun weeklyLeaderboard(session: Session): Result<List<LeaderboardItem>> = io {
+        val a = get("/rest/v1/weekly_leaderboard?select=rank,display_name,score&order=rank.asc&limit=20", session)
+        List(a.length()) { i -> a.getJSONObject(i).let { LeaderboardItem(it.optInt("rank", i + 1), it.optString("display_name", "M4X Member"), it.optLong("score")) } }
+    }
+
+    suspend fun inventory(session: Session): Result<List<InventoryItem>> = io {
+        val a = get("/rest/v1/user_inventory?user_id=eq.${session.userId}&select=id,item_name,item_type", session)
+        List(a.length()) { i -> a.getJSONObject(i).let { InventoryItem(it.getString("id"), it.optString("item_name"), it.optString("item_type")) } }
+    }
+
+    suspend fun claimAirdrop(session: Session): Result<Int> = io {
+        val req = base("${SupabaseConfig.url}/rest/v1/rpc/claim_active_airdrop", session).post("{}".toRequestBody(jsonType)).build()
+        http.newCall(req).execute().use { res -> val text = res.body?.string().orEmpty(); if (!res.isSuccessful) throw IOException(error(text, "Airdrop đã hết")); text.trim().trim('"').toIntOrNull() ?: 0 }
+    }
+
+    suspend fun createAirdrop(session: Session): Result<Unit> = io {
+        val row = JSONObject().put("reward", (100..2000).random()).put("active", true).put("expires_at", isoAfter(3600))
+        post("/rest/v1/airdrops", JSONArray().put(row).toString(), session)
+    }
+
+    suspend fun publishBirthdayWeek(session: Session): Result<Unit> = io {
+        val row = JSONObject().put("title", "Tuần lễ sinh nhật Admin").put("description", "01/08–07/08: đăng nhập nhận quà, x2 nhiệm vụ, Giftcode bí mật, 4.080 M4X COIN, vòng quay, giảm 40% và Boss cộng đồng.").put("active", true).put("start_at", "2026-08-01T00:00:00Z").put("end_at", "2026-08-07T23:59:59Z")
+        post("/rest/v1/events", JSONArray().put(row).toString(), session)
     }
 
     suspend fun remoteConfig(session: Session): Result<RemoteConfig> = io {
@@ -272,6 +351,10 @@ class SupabaseApi(private val context: Context) {
         }
     }
 
+    private fun parseEvents(a: JSONArray) = List(a.length()) { i ->
+        a.getJSONObject(i).let { EventItem(it.getString("id"), it.optString("title"), it.optString("description"), it.optString("start_at"), it.optString("end_at"), it.optBoolean("active")) }
+    }
+
     private fun parseThemes(a: JSONArray) = List(a.length()) { i ->
         a.getJSONObject(i).let { o ->
             ThemeItem(
@@ -281,7 +364,7 @@ class SupabaseApi(private val context: Context) {
                 previewUrls = parseStringList(o.optJSONArray("preview_urls")), driveUrl = o.optString("drive_url"),
                 status = o.optString("status", "pending"),
                 rejectReason = o.optString("reject_reason"), downloads = o.optLong("downloads"), rating = o.optDouble("rating"),
-                createdAt = o.optString("created_at")
+                createdAt = o.optString("created_at"), coinPrice = o.optInt("coin_price")
             )
         }
     }
@@ -291,6 +374,12 @@ class SupabaseApi(private val context: Context) {
         if (a == null) return emptyList()
         return List(a.length()) { i -> a.optString(i) }.filter { it.isNotBlank() }
     }
+    private fun isoAfter(seconds: Long): String {
+        val format = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", java.util.Locale.US)
+        format.timeZone = java.util.TimeZone.getTimeZone("UTC")
+        return format.format(java.util.Date(System.currentTimeMillis() + seconds * 1000L))
+    }
+
     private fun checkConfig() {
         if (!SupabaseConfig.configured) throw IOException("Chưa cấu hình SUPABASE_URL và SUPABASE_ANON_KEY")
     }

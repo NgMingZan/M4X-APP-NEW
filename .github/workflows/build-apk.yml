@@ -1,4 +1,4 @@
-name: Build M4X Theme v2 APK
+name: Build M4X Theme v3 Universe APK
 
 on:
   workflow_dispatch:
@@ -39,11 +39,11 @@ jobs:
         run: gradle --no-daemon :app:assembleDebug --stacktrace
 
       - name: Prepare APK
-        run: cp app/build/outputs/apk/debug/app-debug.apk M4X-Theme-v2-debug.apk
+        run: cp app/build/outputs/apk/debug/app-debug.apk M4X-Theme-v3-debug.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: M4X-Theme-v2-APK
-          path: M4X-Theme-v2-debug.apk
+          name: M4X-Theme-v3-Universe-APK
+          path: M4X-Theme-v3-debug.apk
           retention-days: 14
