@@ -1,60 +1,27 @@
-import java.util.Properties
-
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
-    id("org.jetbrains.kotlin.plugin.compose")
 }
-
-val supabase = Properties().apply {
-    val file = rootProject.file("supabase.properties")
-    if (file.exists()) file.inputStream().use { load(it) }
-}
-
-fun quoted(value: String): String = "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
 
 android {
     namespace = "com.m4xtheme.app"
     compileSdk = 35
-
     defaultConfig {
         applicationId = "com.aistudio.m4xtheme.app"
         minSdk = 24
         targetSdk = 35
-        versionCode = 39
-        versionName = "3.0.9"
-
-        buildConfigField("String", "SUPABASE_URL", quoted(supabase.getProperty("SUPABASE_URL", "")))
-        buildConfigField("String", "SUPABASE_ANON_KEY", quoted(supabase.getProperty("SUPABASE_ANON_KEY", "")))
-        buildConfigField("String", "UPDATE_JSON_URL", quoted("https://ngmingzan.github.io/M4X-APP-NEW/update.json"))
+        versionCode = 400
+        versionName = "4.0.0"
+        buildConfigField("String", "WEB_APP_URL", "\"https://ngmingzan.github.io/M4X-APP-NEW/\"")
     }
-
-    buildTypes {
-        release {
-            isMinifyEnabled = false
-            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-        }
-    }
-
-    compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_17
-        targetCompatibility = JavaVersion.VERSION_17
-    }
+    buildTypes { release { isMinifyEnabled = false } }
+    compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     kotlinOptions { jvmTarget = "17" }
-    buildFeatures { compose = true; buildConfig = true }
+    buildFeatures { buildConfig = true }
 }
 
 dependencies {
-    implementation(platform("androidx.compose:compose-bom:2024.12.01"))
-    implementation("androidx.activity:activity-compose:1.10.0")
     implementation("androidx.core:core-ktx:1.15.0")
-    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
-    implementation("androidx.compose.ui:ui")
-    implementation("androidx.compose.ui:ui-tooling-preview")
-    implementation("androidx.compose.material3:material3")
-    implementation("androidx.compose.material:material-icons-extended")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
-    implementation("com.squareup.okhttp3:okhttp:4.12.0")
-    implementation("io.coil-kt:coil-compose:2.7.0")
-    debugImplementation("androidx.compose.ui:ui-tooling")
+    implementation("androidx.appcompat:appcompat:1.7.0")
+    implementation("androidx.activity:activity-ktx:1.10.0")
 }
