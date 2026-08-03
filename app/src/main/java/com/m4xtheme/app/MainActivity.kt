@@ -1,9 +1,16 @@
 package com.m4xtheme.app
 
 import android.annotation.SuppressLint
+import android.app.PictureInPictureParams
+import android.app.DownloadManager
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.os.Environment
+import android.provider.Settings
+import android.util.Rational
 import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -44,14 +51,129 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import coil.compose.AsyncImage
 import com.m4xtheme.app.ui.theme.M4XTheme
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import org.json.JSONObject
+import java.net.URL
+
+data class AppUpdateInfo(
+    val versionCode: Int,
+    val versionName: String,
+    val apkUrl: String,
+    val title: String,
+    val message: String,
+    val forceUpdate: Boolean
+)
+
+private suspend fun fetchAppUpdate(): Result<AppUpdateInfo> = withContext(Dispatchers.IO) {
+    runCatching {
+        val json = URL(BuildConfig.UPDATE_JSON_URL).openConnection().run {
+            connectTimeout = 10_000
+            readTimeout = 10_000
+            getInputStream().bufferedReader().use { it.readText() }
+        }
+        val o = JSONObject(json)
+        AppUpdateInfo(
+            versionCode = o.getInt("versionCode"),
+            versionName = o.optString("versionName", o.getInt("versionCode").toString()),
+            apkUrl = o.getString("apkUrl"),
+            title = o.optString("title", "Có bản cập nhật mới"),
+            message = o.optString("message", "Cải thiện hiệu năng và sửa lỗi."),
+            forceUpdate = o.optBoolean("forceUpdate", false)
+        )
+    }
+}
+
+private suspend fun downloadAndInstallUpdate(
+    context: Context,
+    update: AppUpdateInfo,
+    onProgress: (Int) -> Unit
+): Result<Unit> = withContext(Dispatchers.IO) {
+    runCatching {
+        require(update.apkUrl.startsWith("https://")) { "Link APK phải sử dụng HTTPS" }
+        val manager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+        val request = DownloadManager.Request(Uri.parse(update.apkUrl))
+            .setTitle("M4X Theme ${update.versionName}")
+            .setDescription("Đang tải bản cập nhật...")
+            .setMimeType("application/vnd.android.package-archive")
+            .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+            .setDestinationInExternalFilesDir(context, Environment.DIRECTORY_DOWNLOADS, "M4X-Theme-${update.versionName}.apk")
+        val id = manager.enqueue(request)
+        var done = false
+        while (!done) {
+            val query = DownloadManager.Query().setFilterById(id)
+            manager.query(query).use { cursor ->
+                if (!cursor.moveToFirst()) error("Không tìm thấy lượt tải cập nhật")
+                val status = cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))
+                val downloaded = cursor.getLong(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR))
+                val total = cursor.getLong(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_TOTAL_SIZE_BYTES))
+                if (total > 0) onProgress(((downloaded * 100) / total).toInt().coerceIn(0, 100))
+                when (status) {
+                    DownloadManager.STATUS_SUCCESSFUL -> done = true
+                    DownloadManager.STATUS_FAILED -> error("Tải APK thất bại")
+                }
+            }
+            if (!done) delay(600)
+        }
+        val uri = manager.getUriForDownloadedFile(id) ?: error("Không mở được APK đã tải")
+        withContext(Dispatchers.Main) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !context.packageManager.canRequestPackageInstalls()) {
+                context.startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${context.packageName}")))
+            }
+            context.startActivity(
+                Intent(Intent.ACTION_VIEW).apply {
+                    setDataAndType(uri, "application/vnd.android.package-archive")
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+            )
+        }
+    }
+}
 
 class MainActivity : ComponentActivity() {
+    private var activeWebView: WebView? = null
+    private var webViewerActive: Boolean = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent { M4XTheme { M4XApp() } }
+    }
+
+    fun setActiveWebView(webView: WebView?) {
+        activeWebView = webView
+        webViewerActive = webView != null
+        updatePictureInPictureParams()
+    }
+
+    private fun updatePictureInPictureParams() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        val builder = PictureInPictureParams.Builder()
+            .setAspectRatio(Rational(16, 9))
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            builder.setAutoEnterEnabled(webViewerActive)
+            builder.setSeamlessResizeEnabled(true)
+        }
+        setPictureInPictureParams(builder.build())
+    }
+
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+            webViewerActive &&
+            activeWebView != null &&
+            !isInPictureInPictureMode
+        ) {
+            runCatching {
+                enterPictureInPictureMode(
+                    PictureInPictureParams.Builder()
+                        .setAspectRatio(Rational(16, 9))
+                        .build()
+                )
+            }
+        }
     }
 }
 
@@ -70,10 +192,27 @@ private fun M4XApp() {
     var showAirdropChest by remember { mutableStateOf(false) }
     var fullscreenWebUrl by remember { mutableStateOf<String?>(null) }
     var claimingAirdrop by remember { mutableStateOf(false) }
+    var availableUpdate by remember { mutableStateOf<AppUpdateInfo?>(null) }
+    var checkingUpdate by remember { mutableStateOf(false) }
+    var updateProgress by remember { mutableIntStateOf(-1) }
     val snack = remember { SnackbarHostState() }
     val appScope = rememberCoroutineScope()
+    fun checkUpdate(showNoUpdate: Boolean = false) {
+        if (checkingUpdate) return
+        checkingUpdate = true
+        appScope.launch {
+            fetchAppUpdate()
+                .onSuccess { info ->
+                    if (info.versionCode > BuildConfig.VERSION_CODE) availableUpdate = info
+                    else if (showNoUpdate) message = "Bạn đang dùng phiên bản mới nhất"
+                }
+                .onFailure { if (showNoUpdate) message = "Không thể kiểm tra cập nhật: ${it.message}" }
+            checkingUpdate = false
+        }
+    }
 
     LaunchedEffect(message) { message?.let { snack.showSnackbar(it); message = null } }
+    LaunchedEffect(Unit) { checkUpdate(false) }
     LaunchedEffect(session) {
         session?.let { s ->
             api.profile(s).onSuccess { profile = it }.onFailure { message = it.message }
@@ -100,7 +239,12 @@ private fun M4XApp() {
     }
 
     fullscreenWebUrl?.let { url ->
-        FullscreenWebViewer(url = url, onClose = { fullscreenWebUrl = null })
+        val activity = context as? MainActivity
+        FullscreenWebViewer(
+            url = url,
+            onClose = { fullscreenWebUrl = null },
+            onWebViewChanged = { activity?.setActiveWebView(it) }
+        )
         return
     }
 
@@ -141,7 +285,7 @@ private fun M4XApp() {
                 Tab.QUEST -> QuestHub(api, session!!, profile, onCoinChanged = { newBalance -> profile = profile?.copy(points = newBalance) }, onMessage = { message = it })
                 Tab.UPLOAD -> UploadScreen(api, session!!, onMessage = { message = it }, onDone = { tab = Tab.PROFILE })
                 Tab.WEB -> M4XWebScreen(config = config, isAdmin = isAdmin, onOpen = { fullscreenWebUrl = it })
-                Tab.PROFILE -> ProfileScreen(api, session!!, profile, config, isAdmin, onOpenAdmin = { tab = Tab.ADMIN }, onLogout = { api.signOut(); session = null; profile = null }, onMessage = { message = it })
+                Tab.PROFILE -> ProfileScreen(api, session!!, profile, config, isAdmin, checkingUpdate, availableUpdate, onCheckUpdate = { checkUpdate(true) }, onOpenAdmin = { tab = Tab.ADMIN }, onLogout = { api.signOut(); session = null; profile = null }, onMessage = { message = it })
                 Tab.ADMIN -> AdminScreen(api, session!!, profile, config, onConfigChanged = { config = it }, onMessage = { message = it })
             }
             if (showAirdropChest) {
@@ -164,6 +308,41 @@ private fun M4XApp() {
                 ) { Icon(Icons.Default.Inventory2, "Rương Airdrop") }
             }
         }
+    }
+
+    availableUpdate?.let { update ->
+        AlertDialog(
+            onDismissRequest = { if (!update.forceUpdate && updateProgress < 0) availableUpdate = null },
+            icon = { Icon(Icons.Default.SystemUpdate, null) },
+            title = { Text(update.title) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Phiên bản hiện tại: ${BuildConfig.VERSION_NAME}")
+                    Text("Phiên bản mới: ${update.versionName}", fontWeight = FontWeight.Bold)
+                    Text(update.message)
+                    if (updateProgress >= 0) {
+                        LinearProgressIndicator(progress = { updateProgress / 100f }, modifier = Modifier.fillMaxWidth())
+                        Text("Đang tải: $updateProgress%")
+                    }
+                }
+            },
+            dismissButton = {
+                if (!update.forceUpdate && updateProgress < 0) TextButton(onClick = { availableUpdate = null }) { Text("Để sau") }
+            },
+            confirmButton = {
+                Button(
+                    enabled = updateProgress < 0,
+                    onClick = {
+                        updateProgress = 0
+                        appScope.launch {
+                            downloadAndInstallUpdate(context, update) { updateProgress = it }
+                                .onFailure { message = "Cập nhật thất bại: ${it.message}" }
+                            updateProgress = -1
+                        }
+                    }
+                ) { Text(if (updateProgress >= 0) "Đang tải..." else "Tải cập nhật") }
+            }
+        )
     }
 }
 
@@ -428,8 +607,24 @@ private fun M4XWebScreen(config: RemoteConfig, isAdmin: Boolean, onOpen: (String
 
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
-private fun FullscreenWebViewer(url: String, onClose: () -> Unit) {
+private fun FullscreenWebViewer(
+    url: String,
+    onClose: () -> Unit,
+    onWebViewChanged: (WebView?) -> Unit
+) {
     var webView by remember { mutableStateOf<WebView?>(null) }
+    DisposableEffect(Unit) {
+        onDispose {
+            onWebViewChanged(null)
+            webView?.apply {
+                stopLoading()
+                loadUrl("about:blank")
+                clearHistory()
+                removeAllViews()
+                destroy()
+            }
+        }
+    }
     BackHandler {
         val w = webView
         if (w != null && w.canGoBack()) w.goBack() else onClose()
@@ -438,6 +633,7 @@ private fun FullscreenWebViewer(url: String, onClose: () -> Unit) {
         factory = { ctx ->
             WebView(ctx).apply {
                 webView = this
+                onWebViewChanged(this)
                 settings.javaScriptEnabled = true
                 settings.domStorageEnabled = true
                 settings.allowFileAccess = true
@@ -708,7 +904,7 @@ private fun AdminGiftCode(api: SupabaseApi, session: Session, onMessage: (String
 @Composable private fun UserAdminRow(u: Profile, canEdit: Boolean, click: () -> Unit) { ElevatedCard(shape = RoundedCornerShape(18.dp)) { Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) { Box(Modifier.size(46.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primaryContainer), contentAlignment = Alignment.Center) { Text(u.displayName.take(1).uppercase().ifBlank { "M" }, fontWeight = FontWeight.Black) }; Spacer(Modifier.width(12.dp)); Column(Modifier.weight(1f)) { Text(u.displayName.ifBlank { u.username }, fontWeight = FontWeight.Bold); Text("@${u.username} • ${u.role} • ${u.points} coin", color = MaterialTheme.colorScheme.onSurfaceVariant) }; if (canEdit && u.role != "super_admin") TextButton(onClick = click) { Text(if (u.role == "admin") "Hạ quyền" else "Lên Admin") } } } }
 
 @Composable
-private fun ProfileScreen(api: SupabaseApi, session: Session, profile: Profile?, config: RemoteConfig, isAdmin: Boolean, onOpenAdmin: () -> Unit, onLogout: () -> Unit, onMessage: (String) -> Unit) {
+private fun ProfileScreen(api: SupabaseApi, session: Session, profile: Profile?, config: RemoteConfig, isAdmin: Boolean, checkingUpdate: Boolean, availableUpdate: AppUpdateInfo?, onCheckUpdate: () -> Unit, onOpenAdmin: () -> Unit, onLogout: () -> Unit, onMessage: (String) -> Unit) {
     var mine by remember { mutableStateOf<List<ThemeItem>>(emptyList()) }; var inventory by remember { mutableStateOf<List<InventoryItem>>(emptyList()) }
     LaunchedEffect(Unit) { api.myThemes(session).onSuccess { mine = it }; api.inventory(session).onSuccess { inventory = it } }
     val downloads = mine.sumOf { it.downloads }
@@ -717,6 +913,20 @@ private fun ProfileScreen(api: SupabaseApi, session: Session, profile: Profile?,
         item { SectionTitle("Kho vật phẩm cá nhân", "Khung avatar, màu tên, hiệu ứng, VIP và vật phẩm đã mua") }
         item { Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(10.dp)) { if (inventory.isEmpty()) repeat(4) { InventoryCard("Vật phẩm ${it + 1}", "Chưa sở hữu") } else inventory.forEach { InventoryCard(it.name, it.type) } } }
         item { FormCard("Thành tích", Icons.Default.EmojiEvents) { Text("Theme đã đăng: ${mine.size}"); Text("Tổng lượt tải: $downloads"); Text("Huy hiệu: Khách mời sinh nhật ADMIN"); Text("Xếp hạng tuần: Đang cập nhật online") } }
+        item {
+            FormCard("Cập nhật ứng dụng", Icons.Default.SystemUpdate) {
+                Text("Phiên bản hiện tại: ${BuildConfig.VERSION_NAME}")
+                Text(
+                    availableUpdate?.let { "Có bản mới ${it.versionName}" } ?: "Kiểm tra bản phát hành mới của M4X Theme",
+                    color = if (availableUpdate != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Button(onClick = onCheckUpdate, enabled = !checkingUpdate, modifier = Modifier.fillMaxWidth()) {
+                    if (checkingUpdate) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                    else Icon(Icons.Default.Refresh, null)
+                    Text(if (checkingUpdate) " Đang kiểm tra..." else " Kiểm tra cập nhật")
+                }
+            }
+        }
         if (isAdmin) item { Button(onClick = onOpenAdmin, modifier = Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(18.dp)) { Icon(Icons.Default.AdminPanelSettings, null); Text(" Mở trung tâm Admin") } }
         item { OutlinedButton(onClick = onLogout, modifier = Modifier.fillMaxWidth().height(54.dp)) { Icon(Icons.Default.Logout, null); Text(" Đăng xuất") } }
     }

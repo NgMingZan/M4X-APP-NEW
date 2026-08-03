@@ -21,11 +21,12 @@ android {
         applicationId = "com.aistudio.m4xtheme.app"
         minSdk = 24
         targetSdk = 35
-        versionCode = 37
-        versionName = "3.0.7"
+        versionCode = 39
+        versionName = "3.0.9"
 
         buildConfigField("String", "SUPABASE_URL", quoted(supabase.getProperty("SUPABASE_URL", "")))
         buildConfigField("String", "SUPABASE_ANON_KEY", quoted(supabase.getProperty("SUPABASE_ANON_KEY", "")))
+        buildConfigField("String", "UPDATE_JSON_URL", quoted("https://ngmingzan.github.io/M4X-APP-NEW/update.json"))
     }
 
     buildTypes {
