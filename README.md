@@ -1,22 +1,28 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
-</div>
+# M4X Theme 1.0 – Complete Android Project
 
-# Run and deploy your AI Studio app
+Ứng dụng Android Native bằng Kotlin + Jetpack Compose, giữ cấu trúc nguồn M4X ban đầu.
 
-This contains everything you need to run your app locally.
+## Chức năng đã có trong APK
+- Đăng nhập/đăng xuất mô phỏng và chuyển vai trò User, Creator, Admin.
+- Trang chủ, banner, theme nổi bật/mới/top tải/top đánh giá/cập nhật.
+- Tìm kiếm và lọc theo HyperOS, MIUI, danh mục.
+- Chi tiết theme, lượt xem, tải, yêu thích, theo dõi creator.
+- Đánh giá 1–5 sao, bình luận và báo lỗi.
+- Đăng theme `.mtz/.zip`, kiểm tra tên file/kích thước và trạng thái duyệt.
+- Hồ sơ, theme đã đăng, lịch sử hoạt động và thông báo.
+- Điểm thưởng, nhiệm vụ và nhận thưởng.
+- Admin dashboard, thống kê, duyệt/từ chối/xóa/nổi bật theme.
+- Quản lý người dùng, khóa/mở khóa và gửi thông báo toàn hệ thống.
+- Kiểm tra OTA mô phỏng.
+- Room database để app hoạt động offline và build ngay.
 
-View your app in AI Studio: https://ai.studio/apps/64870414-7aca-4954-8283-8a605e45b96c
+## Thành phần backend đi kèm
+- `firestore.rules`
+- `storage.rules`
+- `firebase.json`
+- `FIREBASE_SETUP.md`
 
-## Run Locally
+Firebase thật cần `google-services.json` của chủ dự án và không thể được tạo thay bằng dữ liệu giả.
 
-**Prerequisites:**  [Android Studio](https://developer.android.com/studio)
-
-
-1. Open Android Studio
-2. Select **Open** and choose the directory containing this project
-3. Allow Android Studio to fix any incompatibilities as it imports the project.
-4. Create a file named `.env` in the project directory and set `GEMINI_API_KEY` in that file to your Gemini API key (see `.env.example` for an example)
-5. Remove this line from the app's `build.gradle.kts` file: `signingConfig = signingConfigs.getByName("debugConfig")`
-6. Run the app on an emulator or physical device
-7. If you have already published your app in AI Studio, please [request upload key reset](https://support.google.com/googleplay/android-developer/answer/9842756#zippy=%2Crequest-an-upload-key-reset) in Google Play Console.
+## Build APK bằng GitHub Actions
+Push lên nhánh `main`, mở Actions, chạy `Build M4X Theme APK`, tải artifact `M4X-Theme-APK`.
