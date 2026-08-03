@@ -36,6 +36,8 @@ data class ThemeItem(
     val osVersion: String,
     val fileUrl: String,
     val previewUrl: String,
+    val previewUrls: List<String>,
+    val driveUrl: String,
     val status: String,
     val rejectReason: String,
     val downloads: Long,
@@ -121,27 +123,50 @@ class SupabaseApi(private val context: Context) {
 
     suspend fun uploadTheme(
         session: Session,
-        fileUri: Uri,
+        fileUri: Uri?,
+        previewUris: List<Uri>,
+        driveUrl: String,
         title: String,
         description: String,
         category: String,
-        osVersion: String
+        osVersion: String,
+        tags: String,
+        adminNote: String
     ): Result<Unit> = io {
         require(title.isNotBlank()) { "Chưa nhập tên theme" }
-        val name = fileName(context.contentResolver, fileUri)
-        require(name.endsWith(".mtz", true) || name.endsWith(".zip", true)) { "Chỉ nhận file .mtz hoặc .zip" }
-        val safeName = name.replace(Regex("[^A-Za-z0-9._-]"), "_")
-        val path = "${session.userId}/${UUID.randomUUID()}_$safeName"
-        uploadFile(session, fileUri, path)
-        val publicUrl = "${SupabaseConfig.url}/storage/v1/object/public/themes/$path"
+        require(fileUri != null || driveUrl.isNotBlank()) { "Hãy chọn file hoặc dán link Google Drive" }
+        if (driveUrl.isNotBlank()) require(driveUrl.startsWith("https://")) { "Link Drive phải bắt đầu bằng https://" }
+
+        var publicUrl = ""
+        if (fileUri != null) {
+            val name = fileName(context.contentResolver, fileUri)
+            require(name.endsWith(".mtz", true) || name.endsWith(".zip", true)) { "Chỉ nhận file .mtz hoặc .zip" }
+            val safeName = name.replace(Regex("[^A-Za-z0-9._-]"), "_")
+            val path = "${session.userId}/files/${UUID.randomUUID()}_$safeName"
+            uploadFile(session, fileUri, path)
+            publicUrl = "${SupabaseConfig.url}/storage/v1/object/public/themes/$path"
+        }
+
+        val previews = previewUris.take(5).mapIndexed { index, uri ->
+            val original = fileName(context.contentResolver, uri)
+            val ext = original.substringAfterLast('.', "jpg").lowercase().take(5)
+            val path = "${session.userId}/previews/${UUID.randomUUID()}_${index}.$ext"
+            uploadFile(session, uri, path)
+            "${SupabaseConfig.url}/storage/v1/object/public/themes/$path"
+        }
+
         val row = JSONObject().apply {
             put("owner_id", session.userId)
             put("title", title.trim())
             put("description", description.trim())
             put("category", category.trim())
             put("os_version", osVersion.trim())
+            put("tags", tags.trim())
+            put("admin_note", adminNote.trim())
             put("file_url", publicUrl)
-            put("preview_url", "")
+            put("drive_url", driveUrl.trim())
+            put("preview_url", previews.firstOrNull().orEmpty())
+            put("preview_urls", JSONArray(previews))
             put("status", "pending")
         }
         post("/rest/v1/themes", JSONArray().put(row).toString(), session)
@@ -252,13 +277,20 @@ class SupabaseApi(private val context: Context) {
             ThemeItem(
                 id = o.getString("id"), ownerId = o.optString("owner_id"), title = o.optString("title"),
                 description = o.optString("description"), category = o.optString("category"), osVersion = o.optString("os_version"),
-                fileUrl = o.optString("file_url"), previewUrl = o.optString("preview_url"), status = o.optString("status", "pending"),
+                fileUrl = o.optString("file_url"), previewUrl = o.optString("preview_url"),
+                previewUrls = parseStringList(o.optJSONArray("preview_urls")), driveUrl = o.optString("drive_url"),
+                status = o.optString("status", "pending"),
                 rejectReason = o.optString("reject_reason"), downloads = o.optLong("downloads"), rating = o.optDouble("rating"),
                 createdAt = o.optString("created_at")
             )
         }
     }
 
+
+    private fun parseStringList(a: JSONArray?): List<String> {
+        if (a == null) return emptyList()
+        return List(a.length()) { i -> a.optString(i) }.filter { it.isNotBlank() }
+    }
     private fun checkConfig() {
         if (!SupabaseConfig.configured) throw IOException("Chưa cấu hình SUPABASE_URL và SUPABASE_ANON_KEY")
     }

@@ -22,6 +22,10 @@ create table if not exists public.themes (
   os_version text not null default '',
   file_url text not null default '',
   preview_url text not null default '',
+  preview_urls jsonb not null default '[]'::jsonb,
+  drive_url text not null default '',
+  tags text not null default '',
+  admin_note text not null default '',
   status text not null default 'pending' check (status in ('pending','approved','rejected')),
   reject_reason text not null default '',
   downloads bigint not null default 0,
@@ -34,6 +38,10 @@ alter table public.themes add column if not exists owner_id uuid references publ
 alter table public.themes add column if not exists title text not null default '';
 alter table public.themes add column if not exists os_version text not null default '';
 alter table public.themes add column if not exists preview_url text not null default '';
+alter table public.themes add column if not exists preview_urls jsonb not null default '[]'::jsonb;
+alter table public.themes add column if not exists drive_url text not null default '';
+alter table public.themes add column if not exists tags text not null default '';
+alter table public.themes add column if not exists admin_note text not null default '';
 alter table public.themes add column if not exists status text not null default 'pending';
 alter table public.themes add column if not exists reject_reason text not null default '';
 alter table public.themes add column if not exists updated_at timestamptz not null default now();
@@ -159,8 +167,8 @@ grant execute on function public.increment_theme_download(uuid) to authenticated
 
 -- Storage bucket: tạo nếu chưa có. Public để link file tải trực tiếp hoạt động.
 insert into storage.buckets(id, name, public, file_size_limit, allowed_mime_types)
-values ('themes','themes',true,104857600,array['application/zip','application/octet-stream'])
-on conflict (id) do update set public=true, file_size_limit=104857600;
+values ('themes','themes',true,104857600,array['application/zip','application/octet-stream','image/jpeg','image/png','image/webp'])
+on conflict (id) do update set public=true, file_size_limit=104857600, allowed_mime_types=excluded.allowed_mime_types;
 
 -- Xóa policy Storage cùng tên nếu đã có.
 drop policy if exists theme_files_public_read on storage.objects;
