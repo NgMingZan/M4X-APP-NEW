@@ -7,7 +7,9 @@ import android.os.Bundle
 import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.webkit.WebResourceRequest
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -66,6 +68,7 @@ private fun M4XApp() {
     var tab by remember { mutableStateOf(Tab.HOME) }
     var message by remember { mutableStateOf<String?>(null) }
     var showAirdropChest by remember { mutableStateOf(false) }
+    var fullscreenWebUrl by remember { mutableStateOf<String?>(null) }
     var claimingAirdrop by remember { mutableStateOf(false) }
     val snack = remember { SnackbarHostState() }
     val appScope = rememberCoroutineScope()
@@ -83,8 +86,21 @@ private fun M4XApp() {
         }
     }
 
+    LaunchedEffect(session?.userId) {
+        val s = session ?: return@LaunchedEffect
+        while (true) {
+            delay(60_000L)
+            api.recordAppUsage(s, 1)
+        }
+    }
+
     if (session == null) {
         AuthScreen(api, onSuccess = { api.saveSession(it); session = it }, onMessage = { message = it })
+        return
+    }
+
+    fullscreenWebUrl?.let { url ->
+        FullscreenWebViewer(url = url, onClose = { fullscreenWebUrl = null })
         return
     }
 
@@ -122,11 +138,11 @@ private fun M4XApp() {
         Box(Modifier.padding(padding).fillMaxSize()) {
             when (tab) {
                 Tab.HOME -> HomeScreen(api, session!!, config, profile, onMessage = { message = it })
-                Tab.QUEST -> QuestHub(api, session!!, profile, onMessage = { message = it })
+                Tab.QUEST -> QuestHub(api, session!!, profile, onCoinChanged = { newBalance -> profile = profile?.copy(points = newBalance) }, onMessage = { message = it })
                 Tab.UPLOAD -> UploadScreen(api, session!!, onMessage = { message = it }, onDone = { tab = Tab.PROFILE })
-                Tab.WEB -> M4XWebScreen()
+                Tab.WEB -> M4XWebScreen(config = config, isAdmin = isAdmin, onOpen = { fullscreenWebUrl = it })
                 Tab.PROFILE -> ProfileScreen(api, session!!, profile, config, isAdmin, onOpenAdmin = { tab = Tab.ADMIN }, onLogout = { api.signOut(); session = null; profile = null }, onMessage = { message = it })
-                Tab.ADMIN -> AdminScreen(api, session!!, profile, onMessage = { message = it })
+                Tab.ADMIN -> AdminScreen(api, session!!, profile, config, onConfigChanged = { config = it }, onMessage = { message = it })
             }
             if (showAirdropChest) {
                 FloatingActionButton(
@@ -285,12 +301,13 @@ private fun ThemeCard(theme: ThemeItem, onBuy: () -> Unit) {
 }
 
 @Composable
-private fun QuestHub(api: SupabaseApi, session: Session, profile: Profile?, onMessage: (String) -> Unit) {
+private fun QuestHub(api: SupabaseApi, session: Session, profile: Profile?, onCoinChanged: (Long) -> Unit, onMessage: (String) -> Unit) {
     val scope = rememberCoroutineScope()
     var quests by remember { mutableStateOf<List<QuestItem>>(emptyList()) }
     var claimed by remember { mutableStateOf<Set<String>>(emptySet()) }
     var gift by remember { mutableStateOf("") }
     var leaderboard by remember { mutableStateOf<List<LeaderboardItem>>(emptyList()) }
+    var openingChest by remember { mutableStateOf(false) }
     fun reloadQuests() { scope.launch { api.claimedQuestIds(session).onSuccess { claimed = it }; api.activeQuests(session).onSuccess { quests = it } } }
     LaunchedEffect(Unit) { reloadQuests(); api.weeklyLeaderboard(session).onSuccess { leaderboard = it } }
     val available = quests.filterNot { it.id in claimed }
@@ -302,13 +319,56 @@ private fun QuestHub(api: SupabaseApi, session: Session, profile: Profile?, onMe
             ElevatedCard(shape = RoundedCornerShape(22.dp)) { Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Default.TaskAlt, null, tint = MaterialTheme.colorScheme.secondary); Spacer(Modifier.width(12.dp)); Column(Modifier.weight(1f)) { Text(q.title, fontWeight = FontWeight.Bold); Text(q.description, color = MaterialTheme.colorScheme.onSurfaceVariant) }; AssistChip(onClick = { scope.launch { api.claimQuest(session, q.id).onSuccess { claimed = claimed + q.id; onMessage("Nhận ${q.reward} M4X COIN") }.onFailure { reloadQuests(); onMessage(it.message ?: "Không thể nhận") } } }, label = { Text("+${q.reward}") }) } }
         }
         item { ElevatedCard(shape = RoundedCornerShape(24.dp)) { Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) { Text("Nhập Giftcode", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black); OutlinedTextField(gift, { gift = it.uppercase() }, label = { Text("Mã quà tặng") }, modifier = Modifier.fillMaxWidth(), singleLine = true); Button(onClick = { scope.launch { api.redeemGiftCode(session, gift).onSuccess { onMessage("Đã nhận $it M4X COIN"); gift = "" }.onFailure { onMessage(it.message ?: "Giftcode không hợp lệ") } } }, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.Redeem, null); Text(" Nhận quà") } } } }
-        item { SectionTitle("Top thành viên tuần", "Thưởng từ 5.000 đến 50.000 M4X COIN") }
+        item { SectionTitle("Top đóng góp tuần", "Tính theo theme được duyệt, lượt tải hợp lệ và thời gian dùng app") }
         items(leaderboard.take(5)) { item -> LeaderRow(item) }
-        item { ElevatedCard(shape = RoundedCornerShape(24.dp)) { Row(Modifier.padding(18.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Default.Inventory2, null, tint = Color(0xFFFFC857)); Spacer(Modifier.width(12.dp)); Column { Text("Rương Airdrop ngẫu nhiên", fontWeight = FontWeight.Black); Text("Rương sẽ xuất hiện bất ngờ khi bạn đang sử dụng app") } } } }
+        item {
+            ElevatedCard(shape = RoundedCornerShape(24.dp)) {
+                Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Inventory2, null, tint = Color(0xFFFFC857))
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text("Mở Rương M4X", fontWeight = FontWeight.Black, style = MaterialTheme.typography.titleLarge)
+                            Text("Phí mở: 20 M4X COIN • Thưởng tối đa 3.500", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                    Text("“Cờ bạc là bác thằng bần”", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)
+                    Button(
+                        enabled = !openingChest && (profile?.points ?: 0) >= 20,
+                        onClick = {
+                            openingChest = true
+                            scope.launch {
+                                api.openCoinChest(session).onSuccess { result ->
+                                    onCoinChanged(result.balance)
+                                    onMessage(if (result.reward > 0) "🎁 ${result.message}: +${result.reward} M4X COIN" else "🍀 ${result.message}")
+                                }.onFailure { onMessage(it.message ?: "Không thể mở rương") }
+                                openingChest = false
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth().height(54.dp),
+                        shape = RoundedCornerShape(18.dp)
+                    ) { Text(if (openingChest) "Đang mở…" else "Mở rương • 20 coin", fontWeight = FontWeight.Black) }
+                    Text("Giải dương thấp nhất 10 coin; có thể nhận ‘Chúc bạn may mắn lần sau’. Kết quả do máy chủ quyết định.", style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        }
+        item { ElevatedCard(shape = RoundedCornerShape(24.dp)) { Row(Modifier.padding(18.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Default.Inventory2, null, tint = Color(0xFFFFC857)); Spacer(Modifier.width(12.dp)); Column { Text("Rương Airdrop ngẫu nhiên", fontWeight = FontWeight.Black); Text("Rương miễn phí sẽ xuất hiện bất ngờ khi bạn đang sử dụng app") } } } }
     }
 }
 
-@Composable private fun LeaderRow(item: LeaderboardItem) { ElevatedCard(shape = RoundedCornerShape(18.dp)) { Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) { Text("#${item.rank}", fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.secondary); Spacer(Modifier.width(12.dp)); Text(item.displayName, Modifier.weight(1f), fontWeight = FontWeight.Bold); Text("${item.score} điểm") } } }
+@Composable private fun LeaderRow(item: LeaderboardItem) {
+    ElevatedCard(shape = RoundedCornerShape(18.dp)) {
+        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("#${item.rank}", fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.secondary)
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(item.displayName, fontWeight = FontWeight.Bold)
+                Text("${item.approvedThemes} theme • ${item.downloadsReceived} lượt tải • ${item.activeMinutes} phút", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Text("${item.score} điểm", fontWeight = FontWeight.Bold)
+        }
+    }
+}
 
 @Composable
 private fun UploadScreen(api: SupabaseApi, session: Session, onMessage: (String) -> Unit, onDone: () -> Unit) {
@@ -328,19 +388,81 @@ private fun UploadScreen(api: SupabaseApi, session: Session, onMessage: (String)
 
 @Composable private fun FormCard(title: String, icon: androidx.compose.ui.graphics.vector.ImageVector, content: @Composable ColumnScope.() -> Unit) { ElevatedCard(shape = RoundedCornerShape(24.dp)) { Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) { Row(verticalAlignment = Alignment.CenterVertically) { Icon(icon, null, tint = MaterialTheme.colorScheme.secondary); Spacer(Modifier.width(10.dp)); Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black) }; content() } } }
 
+@Composable
+private fun M4XWebScreen(config: RemoteConfig, isAdmin: Boolean, onOpen: (String) -> Unit) {
+    var showAdultConfirm by remember { mutableStateOf(false) }
+    var pendingAdultUrl by remember { mutableStateOf("") }
+    val tasks = listOf(
+        Triple("Xem Đá Bóng", config.webFootballUrl, config.webFootballEnabled),
+        Triple("Xem phim", config.webMovieUrl, config.webMovieEnabled),
+        Triple("Xem 18+", config.webAdultUrl, config.webAdultEnabled)
+    )
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        item { SectionTitle("M4X WEB", "Mở nội dung web toàn màn hình ngay trong ứng dụng") }
+        items(tasks.filter { it.third }) { task ->
+            val (title, url, _) = task
+            ElevatedCard(Modifier.fillMaxWidth().clickable {
+                if (title == "Xem 18+") { pendingAdultUrl = url; showAdultConfirm = true } else onOpen(url)
+            }, shape = RoundedCornerShape(24.dp)) {
+                Row(Modifier.padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(when(title) { "Xem Đá Bóng" -> Icons.Default.SportsSoccer; "Xem phim" -> Icons.Default.Movie; else -> Icons.Default.Explicit }, null, tint = MaterialTheme.colorScheme.secondary)
+                    Spacer(Modifier.width(14.dp))
+                    Column(Modifier.weight(1f)) { Text(title, fontWeight = FontWeight.Black, style = MaterialTheme.typography.titleLarge); Text("Mở toàn màn hình", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                    Icon(Icons.Default.ChevronRight, null)
+                }
+            }
+        }
+        if (tasks.none { it.third }) item { EmptyState("M4X WEB đang tạm tắt", "Admin chưa bật tác vụ web nào") }
+        if (isAdmin) item { Text("Admin có thể đổi link hoặc tắt tác vụ trong Trung tâm điều hành → M4X WEB.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+    }
+    if (showAdultConfirm) {
+        AlertDialog(
+            onDismissRequest = { showAdultConfirm = false },
+            title = { Text("Xác nhận độ tuổi") },
+            text = { Text("Nội dung này chỉ dành cho người từ 18 tuổi trở lên.") },
+            confirmButton = { TextButton(onClick = { showAdultConfirm = false; onOpen(pendingAdultUrl) }) { Text("Tôi đủ 18 tuổi") } },
+            dismissButton = { TextButton(onClick = { showAdultConfirm = false }) { Text("Hủy") } }
+        )
+    }
+}
+
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
-private fun M4XWebScreen() {
-    var input by remember { mutableStateOf("https://") }; var current by remember { mutableStateOf("") }
-    Column(Modifier.fillMaxSize().imePadding()) {
-        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) { OutlinedTextField(input, { input = it }, modifier = Modifier.weight(1f), singleLine = true, label = { Text("Dán bất kỳ link web") }); Spacer(Modifier.width(8.dp)); IconButton(onClick = { current = if (input.startsWith("http")) input else "https://$input" }) { Icon(Icons.Default.ArrowForward, null) } }
-        if (current.isBlank()) EmptyState("M4X WEB", "Dán link để mở trang web ngay trong app") else AndroidView(factory = { ctx -> WebView(ctx).apply { settings.javaScriptEnabled = true; settings.domStorageEnabled = true; settings.allowFileAccess = true; webViewClient = WebViewClient(); webChromeClient = WebChromeClient(); loadUrl(current) } }, update = { if (it.url != current) it.loadUrl(current) }, modifier = Modifier.fillMaxSize())
+private fun FullscreenWebViewer(url: String, onClose: () -> Unit) {
+    var webView by remember { mutableStateOf<WebView?>(null) }
+    BackHandler {
+        val w = webView
+        if (w != null && w.canGoBack()) w.goBack() else onClose()
     }
+    AndroidView(
+        factory = { ctx ->
+            WebView(ctx).apply {
+                webView = this
+                settings.javaScriptEnabled = true
+                settings.domStorageEnabled = true
+                settings.allowFileAccess = true
+                settings.mediaPlaybackRequiresUserGesture = false
+                settings.setSupportMultipleWindows(true)
+                webChromeClient = WebChromeClient()
+                webViewClient = object : WebViewClient() {
+                    override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+                        val target = request?.url?.toString().orEmpty()
+                        return if (target.startsWith("http://") || target.startsWith("https://")) false else {
+                            runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(target))) }
+                            true
+                        }
+                    }
+                }
+                loadUrl(url)
+            }
+        },
+        modifier = Modifier.fillMaxSize()
+    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun AdminScreen(api: SupabaseApi, session: Session, profile: Profile?, onMessage: (String) -> Unit) {
+private fun AdminScreen(api: SupabaseApi, session: Session, profile: Profile?, config: RemoteConfig, onConfigChanged: (RemoteConfig) -> Unit, onMessage: (String) -> Unit) {
     val scope = rememberCoroutineScope(); var selected by remember { mutableIntStateOf(0) }; var pending by remember { mutableStateOf<List<ThemeItem>>(emptyList()) }; var allThemes by remember { mutableStateOf<List<ThemeItem>>(emptyList()) }; var users by remember { mutableStateOf<List<Profile>>(emptyList()) }; var events by remember { mutableStateOf<List<EventItem>>(emptyList()) }
     fun reload() { scope.launch { api.pendingThemes(session).onSuccess { pending = it }; api.allThemes(session).onSuccess { allThemes = it }; api.users(session).onSuccess { users = it }; api.allEvents(session).onSuccess { events = it } } }
     LaunchedEffect(Unit) { reload() }
@@ -348,15 +470,50 @@ private fun AdminScreen(api: SupabaseApi, session: Session, profile: Profile?, o
         LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             item { SectionTitle("Trung tâm điều hành", "Quản lý toàn bộ M4X Universe") }
             item { Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) { AdminMetric("Chờ duyệt", pending.size, Icons.Default.PendingActions, Modifier.weight(1f)); AdminMetric("Người dùng", users.size, Icons.Default.Groups, Modifier.weight(1f)); AdminMetric("Sự kiện", events.size, Icons.Default.Celebration, Modifier.weight(1f)) } }
-            item { Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) { listOf("Tổng quan", "Theme", "Sự kiện", "Giftcode", "Người dùng").forEachIndexed { i, s -> FilterChip(selected = selected == i, onClick = { selected = i }, label = { Text(s) }) } } }
+            item { Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) { listOf("Tổng quan", "Theme", "Sự kiện", "Giftcode", "Người dùng", "M4X WEB").forEachIndexed { i, s -> FilterChip(selected = selected == i, onClick = { selected = i }, label = { Text(s) }) } } }
             when (selected) {
                 0 -> item { FormCard("Công cụ nhanh", Icons.Default.Dashboard) { AdminAction("Phát hành Airdrop", Icons.Default.RocketLaunch) { scope.launch { api.createAirdrop(session).onSuccess { onMessage("Đã phát hành Airdrop") }.onFailure { onMessage(it.message ?: "Lỗi") } } }; AdminAction("Tuần sinh nhật Admin 01/08–07/08", Icons.Default.Cake) { scope.launch { api.publishBirthdayWeek(session).onSuccess { onMessage("Đã phát hành tuần sinh nhật") }.onFailure { onMessage(it.message ?: "Lỗi") } } }; AdminAction("Mở Boss cộng đồng", Icons.Default.SportsEsports) { onMessage("Boss cộng đồng đã được xếp lịch online") } } }
                 1 -> if (allThemes.isEmpty()) item { EmptyState("Chưa có theme", "Theme người dùng đăng sẽ xuất hiện tại đây") } else items(allThemes, key = { it.id }) { t -> ReviewCard(t, onApprove = { scope.launch { api.reviewTheme(session, t.id, true).onSuccess { reload() } } }, onReject = { scope.launch { api.reviewTheme(session, t.id, false, "Cần bổ sung nội dung").onSuccess { reload() } } }, onSave = { title, desc, drive, price, status, previewUris -> scope.launch { api.updateThemeByAdmin(session, t.id, title, desc, drive, price, status, previewUris).onSuccess { onMessage("Đã cập nhật theme online"); reload() }.onFailure { onMessage(it.message ?: "Không thể sửa theme") } } }) }
                 2 -> { item { AdminCreateEvent(api, session, onMessage) }; items(events) { EventBanner(it) } }
                 3 -> item { AdminGiftCode(api, session, onMessage) }
                 4 -> items(users, key = { it.id }) { u -> UserAdminRow(u, profile?.role == "super_admin") { scope.launch { api.setRole(session, u.id, if (u.role == "admin") "user" else "admin").onSuccess { reload() }.onFailure { onMessage(it.message ?: "Lỗi") } } } }
+                5 -> item { AdminWebSettings(api, session, config, onSaved = onConfigChanged, onMessage = onMessage) }
             }
         }
+    }
+}
+
+@Composable
+private fun AdminWebSettings(api: SupabaseApi, session: Session, config: RemoteConfig, onSaved: (RemoteConfig) -> Unit, onMessage: (String) -> Unit) {
+    val scope = rememberCoroutineScope()
+    var football by remember(config) { mutableStateOf(config.webFootballUrl) }
+    var movie by remember(config) { mutableStateOf(config.webMovieUrl) }
+    var adult by remember(config) { mutableStateOf(config.webAdultUrl) }
+    var footballEnabled by remember(config) { mutableStateOf(config.webFootballEnabled) }
+    var movieEnabled by remember(config) { mutableStateOf(config.webMovieEnabled) }
+    var adultEnabled by remember(config) { mutableStateOf(config.webAdultEnabled) }
+    var saving by remember { mutableStateOf(false) }
+    FormCard("Cấu hình M4X WEB", Icons.Default.Public) {
+        WebSettingRow("Xem Đá Bóng", football, footballEnabled, { football = it }, { footballEnabled = it })
+        WebSettingRow("Xem phim", movie, movieEnabled, { movie = it }, { movieEnabled = it })
+        WebSettingRow("Xem 18+", adult, adultEnabled, { adult = it }, { adultEnabled = it })
+        Button(enabled = !saving, onClick = {
+            saving = true
+            scope.launch {
+                api.updateWebConfig(session, football, movie, adult, footballEnabled, movieEnabled, adultEnabled)
+                    .onSuccess { updated -> onSaved(updated); onMessage("Đã cập nhật M4X WEB online") }
+                    .onFailure { onMessage(it.message ?: "Không thể lưu cấu hình web") }
+                saving = false
+            }
+        }, modifier = Modifier.fillMaxWidth()) { Text(if (saving) "Đang lưu…" else "Lưu thay đổi online") }
+    }
+}
+
+@Composable
+private fun WebSettingRow(title: String, value: String, enabled: Boolean, onValue: (String) -> Unit, onEnabled: (Boolean) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) { Text(title, Modifier.weight(1f), fontWeight = FontWeight.Bold); Switch(checked = enabled, onCheckedChange = onEnabled) }
+        OutlinedTextField(value, onValue, modifier = Modifier.fillMaxWidth(), singleLine = true, enabled = enabled, label = { Text("Đường link") })
     }
 }
 

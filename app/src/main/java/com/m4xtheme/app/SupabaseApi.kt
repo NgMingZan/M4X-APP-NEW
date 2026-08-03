@@ -48,7 +48,15 @@ data class ThemeItem(
 
 data class EventItem(val id: String, val title: String, val description: String, val startAt: String, val endAt: String, val active: Boolean)
 data class QuestItem(val id: String, val title: String, val description: String, val reward: Int)
-data class LeaderboardItem(val rank: Int, val displayName: String, val score: Long)
+data class LeaderboardItem(
+    val rank: Int,
+    val displayName: String,
+    val score: Long,
+    val approvedThemes: Int = 0,
+    val downloadsReceived: Int = 0,
+    val activeMinutes: Int = 0
+)
+data class ChestResult(val reward: Int, val balance: Long, val message: String)
 data class InventoryItem(val id: String, val name: String, val type: String)
 
 data class RemoteConfig(
@@ -59,7 +67,13 @@ data class RemoteConfig(
     val updateMessage: String = "",
     val forceUpdate: Boolean = false,
     val homeBannerTitle: String = "M4X Theme",
-    val homeBannerSubtitle: String = "Kho giao diện HyperOS & MIUI"
+    val homeBannerSubtitle: String = "Kho giao diện HyperOS & MIUI",
+    val webFootballUrl: String = "https://xoilacxtl.tv/",
+    val webMovieUrl: String = "https://cobephim.pro/",
+    val webAdultUrl: String = "https://vnsextop1.com/",
+    val webFootballEnabled: Boolean = true,
+    val webMovieEnabled: Boolean = true,
+    val webAdultEnabled: Boolean = true
 )
 
 class SupabaseApi(private val context: Context) {
@@ -306,8 +320,34 @@ class SupabaseApi(private val context: Context) {
     }
 
     suspend fun weeklyLeaderboard(session: Session): Result<List<LeaderboardItem>> = io {
-        val a = get("/rest/v1/weekly_leaderboard?select=rank,display_name,score&order=rank.asc&limit=20", session)
-        List(a.length()) { i -> a.getJSONObject(i).let { LeaderboardItem(it.optInt("rank", i + 1), it.optString("display_name", "M4X Member"), it.optLong("score")) } }
+        val a = get("/rest/v1/weekly_leaderboard?select=rank,display_name,score,approved_themes,downloads_received,active_minutes&order=rank.asc&limit=20", session)
+        List(a.length()) { i -> a.getJSONObject(i).let {
+            LeaderboardItem(
+                rank = it.optInt("rank", i + 1),
+                displayName = it.optString("display_name", "M4X Member"),
+                score = it.optLong("score"),
+                approvedThemes = it.optInt("approved_themes"),
+                downloadsReceived = it.optInt("downloads_received"),
+                activeMinutes = it.optInt("active_minutes")
+            )
+        } }
+    }
+
+    suspend fun recordAppUsage(session: Session, minutes: Int = 1): Result<Unit> = io {
+        val body = JSONObject().put("p_minutes", minutes.coerceIn(1, 5))
+        execute(base("${SupabaseConfig.url}/rest/v1/rpc/record_app_usage", session)
+            .post(body.toString().toRequestBody(jsonType)).build())
+    }
+
+    suspend fun openCoinChest(session: Session): Result<ChestResult> = io {
+        val req = base("${SupabaseConfig.url}/rest/v1/rpc/open_coin_chest", session)
+            .post("{}".toRequestBody(jsonType)).build()
+        http.newCall(req).execute().use { res ->
+            val text = res.body?.string().orEmpty()
+            if (!res.isSuccessful) throw IOException(error(text, "Không thể mở rương"))
+            val o = if (text.trim().startsWith("[")) JSONArray(text).getJSONObject(0) else JSONObject(text)
+            ChestResult(o.optInt("reward"), o.optLong("balance"), o.optString("message"))
+        }
     }
 
     suspend fun inventory(session: Session): Result<List<InventoryItem>> = io {
@@ -347,8 +387,35 @@ class SupabaseApi(private val context: Context) {
             updateMessage = o.optString("update_message"),
             forceUpdate = o.optBoolean("force_update"),
             homeBannerTitle = o.optString("home_banner_title", "M4X Theme"),
-            homeBannerSubtitle = o.optString("home_banner_subtitle", "Kho giao diện HyperOS & MIUI")
+            homeBannerSubtitle = o.optString("home_banner_subtitle", "Kho giao diện HyperOS & MIUI"),
+            webFootballUrl = o.optString("web_football_url", "https://xoilacxtl.tv/"),
+            webMovieUrl = o.optString("web_movie_url", "https://cobephim.pro/"),
+            webAdultUrl = o.optString("web_adult_url", "https://vnsextop1.com/"),
+            webFootballEnabled = o.optBoolean("web_football_enabled", true),
+            webMovieEnabled = o.optBoolean("web_movie_enabled", true),
+            webAdultEnabled = o.optBoolean("web_adult_enabled", true)
         )
+    }
+
+    suspend fun updateWebConfig(
+        session: Session,
+        footballUrl: String,
+        movieUrl: String,
+        adultUrl: String,
+        footballEnabled: Boolean,
+        movieEnabled: Boolean,
+        adultEnabled: Boolean
+    ): Result<RemoteConfig> = io {
+        listOf(footballUrl, movieUrl, adultUrl).forEach { require(it.startsWith("https://")) { "Link phải bắt đầu bằng https://" } }
+        val body = JSONObject()
+            .put("web_football_url", footballUrl.trim())
+            .put("web_movie_url", movieUrl.trim())
+            .put("web_adult_url", adultUrl.trim())
+            .put("web_football_enabled", footballEnabled)
+            .put("web_movie_enabled", movieEnabled)
+            .put("web_adult_enabled", adultEnabled)
+        patch("/rest/v1/app_config?id=eq.main", body.toString(), session)
+        remoteConfig(session).getOrThrow()
     }
 
     private fun auth(path: String, body: JSONObject): Session {
