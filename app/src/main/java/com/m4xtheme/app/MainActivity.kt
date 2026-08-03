@@ -15,6 +15,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -41,6 +42,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import coil.compose.AsyncImage
 import com.m4xtheme.app.ui.theme.M4XTheme
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -63,30 +65,22 @@ private fun M4XApp() {
     var config by remember { mutableStateOf(RemoteConfig()) }
     var tab by remember { mutableStateOf(Tab.HOME) }
     var message by remember { mutableStateOf<String?>(null) }
+    var showAirdropChest by remember { mutableStateOf(false) }
+    var claimingAirdrop by remember { mutableStateOf(false) }
     val snack = remember { SnackbarHostState() }
-    val scope = rememberCoroutineScope()
-
-    fun refreshProfile(showBalance: Boolean = false) {
-        val current = session ?: return
-        scope.launch {
-            api.profile(current)
-                .onSuccess { latest ->
-                    profile = latest
-                    if (showBalance) message = "Bạn đang có ${latest.points} M4X COIN"
-                }
-                .onFailure { message = it.message ?: "Không thể cập nhật số dư" }
-        }
-    }
+    val appScope = rememberCoroutineScope()
 
     LaunchedEffect(message) { message?.let { snack.showSnackbar(it); message = null } }
     LaunchedEffect(session) {
         session?.let { s ->
             api.profile(s).onSuccess { profile = it }.onFailure { message = it.message }
             api.remoteConfig(s).onSuccess { config = it }
+            while (true) {
+                delay((45_000L..120_000L).random())
+                api.hasActiveAirdrop(s).onSuccess { if (it) showAirdropChest = true }
+                while (showAirdropChest) delay(5_000L)
+            }
         }
-    }
-    LaunchedEffect(tab, session) {
-        session?.let { s -> api.profile(s).onSuccess { profile = it } }
     }
 
     if (session == null) {
@@ -110,7 +104,7 @@ private fun M4XApp() {
                 },
                 actions = {
                     if (isAdmin) IconButton(onClick = { tab = Tab.ADMIN }) { Icon(Icons.Default.AdminPanelSettings, "Admin") }
-                    IconButton(onClick = { refreshProfile(showBalance = true) }) { Icon(Icons.Default.Paid, "M4X COIN", tint = Color(0xFFFFC857)) }
+                    IconButton(onClick = { message = "Bạn đang có ${profile?.points ?: 0} M4X COIN" }) { Icon(Icons.Default.Paid, "M4X COIN", tint = Color(0xFFFFC857)) }
                 }
             )
         },
@@ -127,12 +121,31 @@ private fun M4XApp() {
     ) { padding ->
         Box(Modifier.padding(padding).fillMaxSize()) {
             when (tab) {
-                Tab.HOME -> HomeScreen(api, session!!, config, profile, onBalanceChanged = { refreshProfile() }, onMessage = { message = it })
-                Tab.QUEST -> QuestHub(api, session!!, profile, onBalanceChanged = { refreshProfile() }, onMessage = { message = it })
+                Tab.HOME -> HomeScreen(api, session!!, config, profile, onMessage = { message = it })
+                Tab.QUEST -> QuestHub(api, session!!, profile, onMessage = { message = it })
                 Tab.UPLOAD -> UploadScreen(api, session!!, onMessage = { message = it }, onDone = { tab = Tab.PROFILE })
                 Tab.WEB -> M4XWebScreen()
                 Tab.PROFILE -> ProfileScreen(api, session!!, profile, config, isAdmin, onOpenAdmin = { tab = Tab.ADMIN }, onLogout = { api.signOut(); session = null; profile = null }, onMessage = { message = it })
                 Tab.ADMIN -> AdminScreen(api, session!!, profile, onMessage = { message = it })
+            }
+            if (showAirdropChest) {
+                FloatingActionButton(
+                    onClick = {
+                        if (!claimingAirdrop) {
+                            claimingAirdrop = true
+                            appScope.launch {
+                                api.claimAirdrop(session!!).onSuccess {
+                                    message = "🎁 Bạn mở rương nhận được $it M4X COIN!"
+                                    api.profile(session!!).onSuccess { profile = it }
+                                }.onFailure { message = it.message ?: "Rương đã có người nhận" }
+                                showAirdropChest = false
+                                claimingAirdrop = false
+                            }
+                        }
+                    },
+                    modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp),
+                    containerColor = Color(0xFFFFC857)
+                ) { Icon(Icons.Default.Inventory2, "Rương Airdrop") }
             }
         }
     }
@@ -188,7 +201,7 @@ private fun AuthScreen(api: SupabaseApi, onSuccess: (Session) -> Unit, onMessage
 }
 
 @Composable
-private fun HomeScreen(api: SupabaseApi, session: Session, config: RemoteConfig, profile: Profile?, onBalanceChanged: () -> Unit, onMessage: (String) -> Unit) {
+private fun HomeScreen(api: SupabaseApi, session: Session, config: RemoteConfig, profile: Profile?, onMessage: (String) -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var themes by remember { mutableStateOf<List<ThemeItem>>(emptyList()) }
@@ -236,7 +249,6 @@ private fun HomeScreen(api: SupabaseApi, session: Session, config: RemoteConfig,
                 if ((profile?.points ?: 0) < theme.coinPrice) onMessage("Bạn chưa đủ ${theme.coinPrice} M4X COIN")
                 else scope.launch {
                     api.purchaseTheme(session, theme.id).onSuccess {
-                        onBalanceChanged()
                         val url = theme.fileUrl.ifBlank { theme.driveUrl }
                         if (url.isNotBlank()) context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
                     }.onFailure { onMessage(it.message ?: "Không thể mua theme") }
@@ -273,30 +285,26 @@ private fun ThemeCard(theme: ThemeItem, onBuy: () -> Unit) {
 }
 
 @Composable
-private fun QuestHub(api: SupabaseApi, session: Session, profile: Profile?, onBalanceChanged: () -> Unit, onMessage: (String) -> Unit) {
+private fun QuestHub(api: SupabaseApi, session: Session, profile: Profile?, onMessage: (String) -> Unit) {
     val scope = rememberCoroutineScope()
     var quests by remember { mutableStateOf<List<QuestItem>>(emptyList()) }
+    var claimed by remember { mutableStateOf<Set<String>>(emptySet()) }
     var gift by remember { mutableStateOf("") }
     var leaderboard by remember { mutableStateOf<List<LeaderboardItem>>(emptyList()) }
-    LaunchedEffect(Unit) { api.activeQuests(session).onSuccess { quests = it }; api.weeklyLeaderboard(session).onSuccess { leaderboard = it } }
+    fun reloadQuests() { scope.launch { api.claimedQuestIds(session).onSuccess { claimed = it }; api.activeQuests(session).onSuccess { quests = it } } }
+    LaunchedEffect(Unit) { reloadQuests(); api.weeklyLeaderboard(session).onSuccess { leaderboard = it } }
+    val available = quests.filterNot { it.id in claimed }
     LazyColumn(Modifier.fillMaxSize().imePadding(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        item {
-            Card(shape = RoundedCornerShape(30.dp)) { Box(Modifier.background(Brush.linearGradient(listOf(Color(0xFF2B1C5B), Color(0xFF0E6670)))).padding(22.dp)) { Column { Text("M4X QUEST MAP", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Black); Text("Vượt từng khu vực, mở rương và đánh Boss cuối tuần"); Spacer(Modifier.height(12.dp)); LinearProgressIndicator(progress = { .35f }, modifier = Modifier.fillMaxWidth().height(10.dp).clip(CircleShape)); Spacer(Modifier.height(8.dp)); Text("Cấp 3 • ${profile?.points ?: 0} M4X COIN") } } }
+        item { Card(shape = RoundedCornerShape(30.dp)) { Box(Modifier.background(Brush.linearGradient(listOf(Color(0xFF2B1C5B), Color(0xFF0E6670)))).padding(22.dp)) { Column { Text("M4X QUEST MAP", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Black); Text("Vượt từng khu vực, mở rương và đánh Boss cuối tuần"); Spacer(Modifier.height(12.dp)); LinearProgressIndicator(progress = { .35f }, modifier = Modifier.fillMaxWidth().height(10.dp).clip(CircleShape)); Spacer(Modifier.height(8.dp)); Text("Cấp 3 • ${profile?.points ?: 0} M4X COIN") } } } }
+        item { SectionTitle("Nhiệm vụ hôm nay", "Nhiệm vụ đã nhận thưởng sẽ tự ẩn") }
+        if (available.isEmpty()) item { EmptyState("Đã hoàn thành hết", "Nhiệm vụ mới sẽ được Admin cập nhật online") }
+        items(available, key = { it.id }) { q ->
+            ElevatedCard(shape = RoundedCornerShape(22.dp)) { Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Default.TaskAlt, null, tint = MaterialTheme.colorScheme.secondary); Spacer(Modifier.width(12.dp)); Column(Modifier.weight(1f)) { Text(q.title, fontWeight = FontWeight.Bold); Text(q.description, color = MaterialTheme.colorScheme.onSurfaceVariant) }; AssistChip(onClick = { scope.launch { api.claimQuest(session, q.id).onSuccess { claimed = claimed + q.id; onMessage("Nhận ${q.reward} M4X COIN") }.onFailure { reloadQuests(); onMessage(it.message ?: "Không thể nhận") } } }, label = { Text("+${q.reward}") }) } }
         }
-        item { SectionTitle("Nhiệm vụ hôm nay", "Hoàn thành để nhận M4X COIN") }
-        items(quests, key = { it.id }) { q ->
-            ElevatedCard(shape = RoundedCornerShape(22.dp)) { Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Default.TaskAlt, null, tint = MaterialTheme.colorScheme.secondary); Spacer(Modifier.width(12.dp)); Column(Modifier.weight(1f)) { Text(q.title, fontWeight = FontWeight.Bold); Text(q.description, color = MaterialTheme.colorScheme.onSurfaceVariant) }; AssistChip(onClick = { scope.launch { api.claimQuest(session, q.id).onSuccess { onBalanceChanged(); onMessage("Nhận ${q.reward} M4X COIN") }.onFailure { onMessage(it.message ?: "Không thể nhận") } } }, label = { Text("+${q.reward}") }) } }
-        }
-        item {
-            ElevatedCard(shape = RoundedCornerShape(24.dp)) { Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) { Text("Nhập Giftcode", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black); OutlinedTextField(gift, { gift = it.uppercase() }, label = { Text("Mã quà tặng") }, modifier = Modifier.fillMaxWidth(), singleLine = true); Button(onClick = { scope.launch { api.redeemGiftCode(session, gift).onSuccess { onBalanceChanged(); onMessage("Đã nhận $it M4X COIN"); gift = "" }.onFailure { onMessage(it.message ?: "Giftcode không hợp lệ") } } }, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.Redeem, null); Text(" Nhận quà") } } }
-        }
+        item { ElevatedCard(shape = RoundedCornerShape(24.dp)) { Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) { Text("Nhập Giftcode", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black); OutlinedTextField(gift, { gift = it.uppercase() }, label = { Text("Mã quà tặng") }, modifier = Modifier.fillMaxWidth(), singleLine = true); Button(onClick = { scope.launch { api.redeemGiftCode(session, gift).onSuccess { onMessage("Đã nhận $it M4X COIN"); gift = "" }.onFailure { onMessage(it.message ?: "Giftcode không hợp lệ") } } }, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.Redeem, null); Text(" Nhận quà") } } } }
         item { SectionTitle("Top thành viên tuần", "Thưởng từ 5.000 đến 50.000 M4X COIN") }
         items(leaderboard.take(5)) { item -> LeaderRow(item) }
-        item {
-            ElevatedCard(shape = RoundedCornerShape(24.dp), modifier = Modifier.clickable { scope.launch { api.claimAirdrop(session).onSuccess { onBalanceChanged(); onMessage("Bạn săn được $it M4X COIN!") }.onFailure { onMessage(it.message ?: "Airdrop đã có người nhận") } } }) {
-                Row(Modifier.padding(18.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Default.RocketLaunch, null, tint = Color(0xFFFFC857)); Spacer(Modifier.width(12.dp)); Column { Text("Săn Airdrop điểm", fontWeight = FontWeight.Black); Text("Điểm rơi ngẫu nhiên: 100–2.000 M4X COIN") } }
-            }
-        }
+        item { ElevatedCard(shape = RoundedCornerShape(24.dp)) { Row(Modifier.padding(18.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Default.Inventory2, null, tint = Color(0xFFFFC857)); Spacer(Modifier.width(12.dp)); Column { Text("Rương Airdrop ngẫu nhiên", fontWeight = FontWeight.Black); Text("Rương sẽ xuất hiện bất ngờ khi bạn đang sử dụng app") } } } }
     }
 }
 
@@ -333,8 +341,8 @@ private fun M4XWebScreen() {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun AdminScreen(api: SupabaseApi, session: Session, profile: Profile?, onMessage: (String) -> Unit) {
-    val scope = rememberCoroutineScope(); var selected by remember { mutableIntStateOf(0) }; var pending by remember { mutableStateOf<List<ThemeItem>>(emptyList()) }; var users by remember { mutableStateOf<List<Profile>>(emptyList()) }; var events by remember { mutableStateOf<List<EventItem>>(emptyList()) }
-    fun reload() { scope.launch { api.pendingThemes(session).onSuccess { pending = it }; api.users(session).onSuccess { users = it }; api.allEvents(session).onSuccess { events = it } } }
+    val scope = rememberCoroutineScope(); var selected by remember { mutableIntStateOf(0) }; var pending by remember { mutableStateOf<List<ThemeItem>>(emptyList()) }; var allThemes by remember { mutableStateOf<List<ThemeItem>>(emptyList()) }; var users by remember { mutableStateOf<List<Profile>>(emptyList()) }; var events by remember { mutableStateOf<List<EventItem>>(emptyList()) }
+    fun reload() { scope.launch { api.pendingThemes(session).onSuccess { pending = it }; api.allThemes(session).onSuccess { allThemes = it }; api.users(session).onSuccess { users = it }; api.allEvents(session).onSuccess { events = it } } }
     LaunchedEffect(Unit) { reload() }
     Column(Modifier.fillMaxSize()) {
         LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -343,7 +351,7 @@ private fun AdminScreen(api: SupabaseApi, session: Session, profile: Profile?, o
             item { Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) { listOf("Tổng quan", "Theme", "Sự kiện", "Giftcode", "Người dùng").forEachIndexed { i, s -> FilterChip(selected = selected == i, onClick = { selected = i }, label = { Text(s) }) } } }
             when (selected) {
                 0 -> item { FormCard("Công cụ nhanh", Icons.Default.Dashboard) { AdminAction("Phát hành Airdrop", Icons.Default.RocketLaunch) { scope.launch { api.createAirdrop(session).onSuccess { onMessage("Đã phát hành Airdrop") }.onFailure { onMessage(it.message ?: "Lỗi") } } }; AdminAction("Tuần sinh nhật Admin 01/08–07/08", Icons.Default.Cake) { scope.launch { api.publishBirthdayWeek(session).onSuccess { onMessage("Đã phát hành tuần sinh nhật") }.onFailure { onMessage(it.message ?: "Lỗi") } } }; AdminAction("Mở Boss cộng đồng", Icons.Default.SportsEsports) { onMessage("Boss cộng đồng đã được xếp lịch online") } } }
-                1 -> if (pending.isEmpty()) item { EmptyState("Không có theme chờ duyệt", "Theme mới sẽ xuất hiện tại đây") } else items(pending, key = { it.id }) { t -> ReviewCard(t, onApprove = { scope.launch { api.reviewTheme(session, t.id, true).onSuccess { reload() } } }, onReject = { scope.launch { api.reviewTheme(session, t.id, false, "Cần bổ sung nội dung").onSuccess { reload() } } }) }
+                1 -> if (allThemes.isEmpty()) item { EmptyState("Chưa có theme", "Theme người dùng đăng sẽ xuất hiện tại đây") } else items(allThemes, key = { it.id }) { t -> ReviewCard(t, onApprove = { scope.launch { api.reviewTheme(session, t.id, true).onSuccess { reload() } } }, onReject = { scope.launch { api.reviewTheme(session, t.id, false, "Cần bổ sung nội dung").onSuccess { reload() } } }, onSave = { title, desc, drive, price, status -> scope.launch { api.updateThemeByAdmin(session, t.id, title, desc, drive, price, status).onSuccess { onMessage("Đã cập nhật theme"); reload() }.onFailure { onMessage(it.message ?: "Không thể sửa theme") } } }) }
                 2 -> { item { AdminCreateEvent(api, session, onMessage) }; items(events) { EventBanner(it) } }
                 3 -> item { AdminGiftCode(api, session, onMessage) }
                 4 -> items(users, key = { it.id }) { u -> UserAdminRow(u, profile?.role == "super_admin") { scope.launch { api.setRole(session, u.id, if (u.role == "admin") "user" else "admin").onSuccess { reload() }.onFailure { onMessage(it.message ?: "Lỗi") } } } }
@@ -354,12 +362,86 @@ private fun AdminScreen(api: SupabaseApi, session: Session, profile: Profile?, o
 
 @Composable private fun AdminMetric(label: String, value: Int, icon: androidx.compose.ui.graphics.vector.ImageVector, modifier: Modifier) { ElevatedCard(modifier, shape = RoundedCornerShape(20.dp)) { Column(Modifier.padding(14.dp)) { Icon(icon, null, tint = MaterialTheme.colorScheme.secondary); Text(value.toString(), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Black); Text(label, style = MaterialTheme.typography.labelMedium) } } }
 @Composable private fun AdminAction(title: String, icon: androidx.compose.ui.graphics.vector.ImageVector, click: () -> Unit) { ListItem(headlineContent = { Text(title, fontWeight = FontWeight.Bold) }, leadingContent = { Icon(icon, null) }, trailingContent = { Icon(Icons.Default.ChevronRight, null) }, modifier = Modifier.clickable(onClick = click)) }
-@Composable private fun ReviewCard(t: ThemeItem, onApprove: () -> Unit, onReject: () -> Unit) { ElevatedCard(shape = RoundedCornerShape(22.dp)) { Column { if (t.previewUrl.isNotBlank()) AsyncImage(t.previewUrl, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxWidth().height(150.dp)); Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) { Text(t.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black); Text("Giá đề xuất: ${t.coinPrice} M4X COIN"); Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { Button(onClick = onApprove, modifier = Modifier.weight(1f)) { Text("Duyệt") }; OutlinedButton(onClick = onReject, modifier = Modifier.weight(1f)) { Text("Từ chối") } } } } } }
+@Composable
+private fun ReviewCard(t: ThemeItem, onApprove: () -> Unit, onReject: () -> Unit, onSave: (String, String, String, Int, String) -> Unit) {
+    var editing by remember { mutableStateOf(false) }
+    ElevatedCard(shape = RoundedCornerShape(22.dp)) { Column { if (t.previewUrl.isNotBlank()) AsyncImage(t.previewUrl, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxWidth().height(150.dp)); Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) { Text(t.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black); Text("${t.status.uppercase()} • ${t.coinPrice} M4X COIN"); Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { Button(onClick = onApprove, modifier = Modifier.weight(1f)) { Text("Duyệt") }; OutlinedButton(onClick = onReject, modifier = Modifier.weight(1f)) { Text("Từ chối") }; IconButton(onClick = { editing = true }) { Icon(Icons.Default.Edit, "Sửa") } } } } }
+    if (editing) {
+        var title by remember(t.id) { mutableStateOf(t.title) }; var desc by remember(t.id) { mutableStateOf(t.description) }; var drive by remember(t.id) { mutableStateOf(t.driveUrl) }; var price by remember(t.id) { mutableStateOf(t.coinPrice.toString()) }; var status by remember(t.id) { mutableStateOf(t.status) }
+        AlertDialog(onDismissRequest = { editing = false }, title = { Text("Sửa theme") }, text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) { OutlinedTextField(title,{title=it},label={Text("Tên theme")}); OutlinedTextField(desc,{desc=it},label={Text("Mô tả")}); OutlinedTextField(drive,{drive=it},label={Text("Link Drive")}); OutlinedTextField(price,{price=it.filter(Char::isDigit)},label={Text("Giá M4X COIN")}); Row(horizontalArrangement=Arrangement.spacedBy(6.dp)){ listOf("pending","approved","rejected").forEach { st -> FilterChip(selected=status==st,onClick={status=st},label={Text(st)}) } } } }, confirmButton = { TextButton(onClick = { onSave(title,desc,drive,price.toIntOrNull()?:0,status); editing=false }) { Text("Lưu") } }, dismissButton = { TextButton(onClick={editing=false}) { Text("Hủy") } })
+    }
+}
 
 @Composable
 private fun AdminCreateEvent(api: SupabaseApi, session: Session, onMessage: (String) -> Unit) { val scope = rememberCoroutineScope(); var title by remember { mutableStateOf("") }; var desc by remember { mutableStateOf("") }; FormCard("Phát hành sự kiện online", Icons.Default.Celebration) { OutlinedTextField(title, { title = it }, label = { Text("Tên sự kiện") }, modifier = Modifier.fillMaxWidth()); OutlinedTextField(desc, { desc = it }, label = { Text("Nội dung") }, modifier = Modifier.fillMaxWidth()); Button(onClick = { scope.launch { api.createEvent(session, title, desc).onSuccess { onMessage("Đã phát hành sự kiện") }.onFailure { onMessage(it.message ?: "Lỗi") } } }, modifier = Modifier.fillMaxWidth()) { Text("Phát hành ngay") } } }
 @Composable
-private fun AdminGiftCode(api: SupabaseApi, session: Session, onMessage: (String) -> Unit) { val scope = rememberCoroutineScope(); var code by remember { mutableStateOf("") }; var reward by remember { mutableStateOf("408") }; FormCard("Tạo Giftcode", Icons.Default.Redeem) { OutlinedTextField(code, { code = it.uppercase() }, label = { Text("Mã") }, modifier = Modifier.fillMaxWidth()); OutlinedTextField(reward, { reward = it.filter(Char::isDigit) }, label = { Text("M4X COIN") }, modifier = Modifier.fillMaxWidth()); Button(onClick = { scope.launch { api.createGiftCode(session, code, reward.toIntOrNull() ?: 0).onSuccess { onMessage("Đã tạo Giftcode") }.onFailure { onMessage(it.message ?: "Lỗi") } } }, modifier = Modifier.fillMaxWidth()) { Text("Tạo mã") } } }
+private fun AdminGiftCode(api: SupabaseApi, session: Session, onMessage: (String) -> Unit) {
+    val scope = rememberCoroutineScope()
+    var code by remember { mutableStateOf("") }
+    var reward by remember { mutableStateOf("408") }
+    var maxUses by remember { mutableStateOf("100") }
+    var validHours by remember { mutableStateOf("24") }
+    var loading by remember { mutableStateOf(false) }
+
+    FormCard("Tạo Giftcode", Icons.Default.Redeem) {
+        Text("Thiết lập phần thưởng, số lượt được nhập và thời gian hết hạn.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        OutlinedTextField(
+            value = code,
+            onValueChange = { code = it.uppercase().filter { c -> c.isLetterOrDigit() || c == '-' || c == '_' } },
+            label = { Text("Mã Giftcode") },
+            supportingText = { Text("Ví dụ: M4X-408") },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true
+        )
+        OutlinedTextField(
+            value = reward,
+            onValueChange = { reward = it.filter(Char::isDigit) },
+            label = { Text("M4X COIN nhận được") },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true
+        )
+        OutlinedTextField(
+            value = maxUses,
+            onValueChange = { maxUses = it.filter(Char::isDigit) },
+            label = { Text("Giới hạn số lượt nhập") },
+            supportingText = { Text("Mỗi tài khoản chỉ nhận mã một lần") },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true
+        )
+        OutlinedTextField(
+            value = validHours,
+            onValueChange = { validHours = it.filter(Char::isDigit) },
+            label = { Text("Thời hạn sử dụng (giờ)") },
+            supportingText = { Text("24 giờ = 1 ngày, 168 giờ = 7 ngày") },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true
+        )
+        Button(
+            enabled = !loading,
+            onClick = {
+                scope.launch {
+                    loading = true
+                    api.createGiftCode(
+                        session = session,
+                        code = code,
+                        reward = reward.toIntOrNull() ?: 0,
+                        maxUses = maxUses.toIntOrNull() ?: 0,
+                        validHours = validHours.toIntOrNull() ?: 0
+                    ).onSuccess {
+                        onMessage("Đã tạo Giftcode $code • tối đa $maxUses lượt • hiệu lực $validHours giờ")
+                        code = ""
+                    }.onFailure { onMessage(it.message ?: "Không thể tạo Giftcode") }
+                    loading = false
+                }
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            if (loading) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+            else Icon(Icons.Default.Redeem, null)
+            Text(if (loading) " Đang tạo..." else " Tạo Giftcode")
+        }
+    }
+}
 @Composable private fun UserAdminRow(u: Profile, canEdit: Boolean, click: () -> Unit) { ElevatedCard(shape = RoundedCornerShape(18.dp)) { Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) { Box(Modifier.size(46.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primaryContainer), contentAlignment = Alignment.Center) { Text(u.displayName.take(1).uppercase().ifBlank { "M" }, fontWeight = FontWeight.Black) }; Spacer(Modifier.width(12.dp)); Column(Modifier.weight(1f)) { Text(u.displayName.ifBlank { u.username }, fontWeight = FontWeight.Bold); Text("@${u.username} • ${u.role} • ${u.points} coin", color = MaterialTheme.colorScheme.onSurfaceVariant) }; if (canEdit && u.role != "super_admin") TextButton(onClick = click) { Text(if (u.role == "admin") "Hạ quyền" else "Lên Admin") } } } }
 
 @Composable

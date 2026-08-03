@@ -121,6 +121,10 @@ class SupabaseApi(private val context: Context) {
         parseThemes(get("/rest/v1/themes?status=eq.pending&select=*&order=created_at.asc", session))
     }
 
+    suspend fun allThemes(session: Session): Result<List<ThemeItem>> = io {
+        parseThemes(get("/rest/v1/themes?select=*&order=created_at.desc", session))
+    }
+
     suspend fun users(session: Session): Result<List<Profile>> = io {
         val a = get("/rest/v1/profiles?select=id,username,display_name,role,points&order=created_at.desc", session)
         List(a.length()) { i -> a.getJSONObject(i).let { o ->
@@ -165,7 +169,6 @@ class SupabaseApi(private val context: Context) {
 
         val row = JSONObject().apply {
             put("owner_id", session.userId)
-            // Schema v3 dùng title + owner_id. Không gửi name/author vì các cột này không còn tồn tại.
             put("title", title.trim())
             put("description", description.trim())
             put("category", category.trim())
@@ -185,6 +188,27 @@ class SupabaseApi(private val context: Context) {
     suspend fun reviewTheme(session: Session, id: String, approved: Boolean, reason: String = ""): Result<Unit> = io {
         val json = JSONObject().put("status", if (approved) "approved" else "rejected")
             .put("reject_reason", if (approved) "" else reason.ifBlank { "Theme chưa đạt yêu cầu" })
+        patch("/rest/v1/themes?id=eq.$id", json.toString(), session)
+    }
+
+    suspend fun updateThemeByAdmin(
+        session: Session,
+        id: String,
+        title: String,
+        description: String,
+        driveUrl: String,
+        coinPrice: Int,
+        status: String
+    ): Result<Unit> = io {
+        require(title.isNotBlank()) { "Tên theme không được để trống" }
+        require(status in setOf("pending", "approved", "rejected")) { "Trạng thái không hợp lệ" }
+        val json = JSONObject()
+            .put("title", title.trim())
+            .put("description", description.trim())
+            .put("drive_url", driveUrl.trim())
+            .put("coin_price", coinPrice.coerceAtLeast(0))
+            .put("status", status)
+            .put("updated_at", isoAfter(0))
         patch("/rest/v1/themes?id=eq.$id", json.toString(), session)
     }
 
@@ -228,6 +252,11 @@ class SupabaseApi(private val context: Context) {
         List(a.length()) { i -> a.getJSONObject(i).let { QuestItem(it.getString("id"), it.optString("title"), it.optString("description"), it.optInt("reward")) } }
     }
 
+    suspend fun claimedQuestIds(session: Session): Result<Set<String>> = io {
+        val a = get("/rest/v1/quest_claims?user_id=eq.${session.userId}&select=quest_id", session)
+        buildSet { repeat(a.length()) { add(a.getJSONObject(it).optString("quest_id")) } }.filter { it.isNotBlank() }.toSet()
+    }
+
     suspend fun claimQuest(session: Session, questId: String): Result<Unit> = io {
         val body = JSONObject().put("quest_id", questId)
         execute(base("${SupabaseConfig.url}/rest/v1/rpc/claim_quest", session).post(body.toString().toRequestBody(jsonType)).build())
@@ -242,9 +271,24 @@ class SupabaseApi(private val context: Context) {
         }
     }
 
-    suspend fun createGiftCode(session: Session, code: String, reward: Int): Result<Unit> = io {
-        require(code.isNotBlank() && reward > 0) { "Mã hoặc phần thưởng không hợp lệ" }
-        val row = JSONObject().put("code", code.trim().uppercase()).put("reward", reward).put("max_uses", 100).put("active", true)
+    suspend fun createGiftCode(
+        session: Session,
+        code: String,
+        reward: Int,
+        maxUses: Int,
+        validHours: Int
+    ): Result<Unit> = io {
+        require(code.isNotBlank()) { "Chưa nhập mã Giftcode" }
+        require(reward > 0) { "M4X COIN phải lớn hơn 0" }
+        require(maxUses in 1..1_000_000) { "Số lượt nhập phải từ 1 đến 1.000.000" }
+        require(validHours in 1..8760) { "Thời hạn phải từ 1 giờ đến 365 ngày" }
+        val row = JSONObject()
+            .put("code", code.trim().uppercase())
+            .put("reward", reward)
+            .put("max_uses", maxUses)
+            .put("used_count", 0)
+            .put("expires_at", isoAfter(validHours.toLong() * 3600L))
+            .put("active", true)
         post("/rest/v1/giftcodes", JSONArray().put(row).toString(), session)
     }
 
@@ -256,6 +300,11 @@ class SupabaseApi(private val context: Context) {
     suspend fun inventory(session: Session): Result<List<InventoryItem>> = io {
         val a = get("/rest/v1/user_inventory?user_id=eq.${session.userId}&select=id,item_name,item_type", session)
         List(a.length()) { i -> a.getJSONObject(i).let { InventoryItem(it.getString("id"), it.optString("item_name"), it.optString("item_type")) } }
+    }
+
+    suspend fun hasActiveAirdrop(session: Session): Result<Boolean> = io {
+        val a = get("/rest/v1/airdrops?active=eq.true&claimed_by=is.null&expires_at=gt.${isoAfter(0)}&select=id&limit=1", session)
+        a.length() > 0
     }
 
     suspend fun claimAirdrop(session: Session): Result<Int> = io {
@@ -385,9 +434,14 @@ class SupabaseApi(private val context: Context) {
         if (!SupabaseConfig.configured) throw IOException("Chưa cấu hình SUPABASE_URL và SUPABASE_ANON_KEY")
     }
 
-    private fun error(text: String, fallback: String): String = runCatching {
-        JSONObject(text).optString("msg").ifBlank { JSONObject(text).optString("message") }.ifBlank { fallback }
-    }.getOrDefault(fallback)
+    private fun error(text: String, fallback: String): String {
+        if (text.contains("quest_claims_user_id_quest_id_key")) return "Nhiệm vụ này đã được nhận"
+        if (text.contains("giftcode_claims_giftcode_id_user_id_key")) return "Bạn đã sử dụng Giftcode này"
+        if (text.contains("giftcodes_code_key")) return "Mã Giftcode đã tồn tại"
+        return runCatching {
+            JSONObject(text).optString("msg").ifBlank { JSONObject(text).optString("message") }.ifBlank { fallback }
+        }.getOrDefault(fallback)
+    }
 
     private suspend fun <T> io(block: () -> T): Result<T> = withContext(Dispatchers.IO) { runCatching(block) }
 
