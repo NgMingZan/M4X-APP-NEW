@@ -1,19 +1,13 @@
-# M4X Theme Android
+# M4X Theme 2.0
 
-Dự án Android mới, tối giản và ưu tiên build APK trực tiếp bằng GitHub Actions.
+Bản prototype Android native mở rộng, gồm:
 
-## Tính năng demo
-- Trang chủ và thống kê.
-- Theme nổi bật và ghi nhận lượt tải.
-- Chọn file `.mtz` / `.zip` từ điện thoại.
-- Nút quản trị mô phỏng duyệt theme.
-- Khung sẵn để phát triển Firebase, Storage, thông báo và OTA.
+- Trang chủ, banner, danh mục và thống kê.
+- Khám phá, tìm kiếm, bộ lọc và bảng xếp hạng.
+- Chi tiết theme, yêu thích, tải, đánh giá, bình luận và báo lỗi.
+- Đăng theme `.mtz/.zip` và theo dõi trạng thái.
+- Hồ sơ, lịch sử tải, thông báo, điểm thưởng và nhiệm vụ.
+- Bảng quản trị: thống kê, duyệt/từ chối theme, người dùng, báo cáo, thông báo và kiểm tra file.
+- Workflow GitHub Actions build APK debug.
 
-## Build APK bằng GitHub Actions
-1. Đưa toàn bộ dự án lên nhánh `main`.
-2. Mở tab **Actions**.
-3. Chọn **Build M4X Theme APK**.
-4. Chờ dấu tích xanh.
-5. Tải **M4X-Theme-APK** ở phần Artifacts.
-
-APK bên trong có tên `M4X-Theme-debug.apk`.
+Đây là prototype chạy cục bộ. Firebase, Storage, API, push notification và OTA thật cần cấu hình dịch vụ máy chủ riêng.
