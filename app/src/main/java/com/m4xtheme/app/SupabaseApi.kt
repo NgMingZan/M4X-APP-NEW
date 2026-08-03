@@ -165,9 +165,7 @@ class SupabaseApi(private val context: Context) {
 
         val row = JSONObject().apply {
             put("owner_id", session.userId)
-            // Tương thích cả database cũ (name/author) và schema mới (title/owner_id).
-            put("name", title.trim())
-            put("author", session.userId)
+            // Schema v3 dùng title + owner_id. Không gửi name/author vì các cột này không còn tồn tại.
             put("title", title.trim())
             put("description", description.trim())
             put("category", category.trim())

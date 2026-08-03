@@ -64,6 +64,19 @@ private fun M4XApp() {
     var tab by remember { mutableStateOf(Tab.HOME) }
     var message by remember { mutableStateOf<String?>(null) }
     val snack = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+
+    fun refreshProfile(showBalance: Boolean = false) {
+        val current = session ?: return
+        scope.launch {
+            api.profile(current)
+                .onSuccess { latest ->
+                    profile = latest
+                    if (showBalance) message = "Bạn đang có ${latest.points} M4X COIN"
+                }
+                .onFailure { message = it.message ?: "Không thể cập nhật số dư" }
+        }
+    }
 
     LaunchedEffect(message) { message?.let { snack.showSnackbar(it); message = null } }
     LaunchedEffect(session) {
@@ -71,6 +84,9 @@ private fun M4XApp() {
             api.profile(s).onSuccess { profile = it }.onFailure { message = it.message }
             api.remoteConfig(s).onSuccess { config = it }
         }
+    }
+    LaunchedEffect(tab, session) {
+        session?.let { s -> api.profile(s).onSuccess { profile = it } }
     }
 
     if (session == null) {
@@ -94,7 +110,7 @@ private fun M4XApp() {
                 },
                 actions = {
                     if (isAdmin) IconButton(onClick = { tab = Tab.ADMIN }) { Icon(Icons.Default.AdminPanelSettings, "Admin") }
-                    IconButton(onClick = { message = "Bạn đang có ${profile?.points ?: 0} M4X COIN" }) { Icon(Icons.Default.Paid, "M4X COIN", tint = Color(0xFFFFC857)) }
+                    IconButton(onClick = { refreshProfile(showBalance = true) }) { Icon(Icons.Default.Paid, "M4X COIN", tint = Color(0xFFFFC857)) }
                 }
             )
         },
@@ -111,8 +127,8 @@ private fun M4XApp() {
     ) { padding ->
         Box(Modifier.padding(padding).fillMaxSize()) {
             when (tab) {
-                Tab.HOME -> HomeScreen(api, session!!, config, profile, onMessage = { message = it })
-                Tab.QUEST -> QuestHub(api, session!!, profile, onMessage = { message = it })
+                Tab.HOME -> HomeScreen(api, session!!, config, profile, onBalanceChanged = { refreshProfile() }, onMessage = { message = it })
+                Tab.QUEST -> QuestHub(api, session!!, profile, onBalanceChanged = { refreshProfile() }, onMessage = { message = it })
                 Tab.UPLOAD -> UploadScreen(api, session!!, onMessage = { message = it }, onDone = { tab = Tab.PROFILE })
                 Tab.WEB -> M4XWebScreen()
                 Tab.PROFILE -> ProfileScreen(api, session!!, profile, config, isAdmin, onOpenAdmin = { tab = Tab.ADMIN }, onLogout = { api.signOut(); session = null; profile = null }, onMessage = { message = it })
@@ -172,7 +188,7 @@ private fun AuthScreen(api: SupabaseApi, onSuccess: (Session) -> Unit, onMessage
 }
 
 @Composable
-private fun HomeScreen(api: SupabaseApi, session: Session, config: RemoteConfig, profile: Profile?, onMessage: (String) -> Unit) {
+private fun HomeScreen(api: SupabaseApi, session: Session, config: RemoteConfig, profile: Profile?, onBalanceChanged: () -> Unit, onMessage: (String) -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var themes by remember { mutableStateOf<List<ThemeItem>>(emptyList()) }
@@ -220,6 +236,7 @@ private fun HomeScreen(api: SupabaseApi, session: Session, config: RemoteConfig,
                 if ((profile?.points ?: 0) < theme.coinPrice) onMessage("Bạn chưa đủ ${theme.coinPrice} M4X COIN")
                 else scope.launch {
                     api.purchaseTheme(session, theme.id).onSuccess {
+                        onBalanceChanged()
                         val url = theme.fileUrl.ifBlank { theme.driveUrl }
                         if (url.isNotBlank()) context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
                     }.onFailure { onMessage(it.message ?: "Không thể mua theme") }
@@ -256,7 +273,7 @@ private fun ThemeCard(theme: ThemeItem, onBuy: () -> Unit) {
 }
 
 @Composable
-private fun QuestHub(api: SupabaseApi, session: Session, profile: Profile?, onMessage: (String) -> Unit) {
+private fun QuestHub(api: SupabaseApi, session: Session, profile: Profile?, onBalanceChanged: () -> Unit, onMessage: (String) -> Unit) {
     val scope = rememberCoroutineScope()
     var quests by remember { mutableStateOf<List<QuestItem>>(emptyList()) }
     var gift by remember { mutableStateOf("") }
@@ -268,15 +285,15 @@ private fun QuestHub(api: SupabaseApi, session: Session, profile: Profile?, onMe
         }
         item { SectionTitle("Nhiệm vụ hôm nay", "Hoàn thành để nhận M4X COIN") }
         items(quests, key = { it.id }) { q ->
-            ElevatedCard(shape = RoundedCornerShape(22.dp)) { Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Default.TaskAlt, null, tint = MaterialTheme.colorScheme.secondary); Spacer(Modifier.width(12.dp)); Column(Modifier.weight(1f)) { Text(q.title, fontWeight = FontWeight.Bold); Text(q.description, color = MaterialTheme.colorScheme.onSurfaceVariant) }; AssistChip(onClick = { scope.launch { api.claimQuest(session, q.id).onSuccess { onMessage("Nhận ${q.reward} M4X COIN") }.onFailure { onMessage(it.message ?: "Không thể nhận") } } }, label = { Text("+${q.reward}") }) } }
+            ElevatedCard(shape = RoundedCornerShape(22.dp)) { Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Default.TaskAlt, null, tint = MaterialTheme.colorScheme.secondary); Spacer(Modifier.width(12.dp)); Column(Modifier.weight(1f)) { Text(q.title, fontWeight = FontWeight.Bold); Text(q.description, color = MaterialTheme.colorScheme.onSurfaceVariant) }; AssistChip(onClick = { scope.launch { api.claimQuest(session, q.id).onSuccess { onBalanceChanged(); onMessage("Nhận ${q.reward} M4X COIN") }.onFailure { onMessage(it.message ?: "Không thể nhận") } } }, label = { Text("+${q.reward}") }) } }
         }
         item {
-            ElevatedCard(shape = RoundedCornerShape(24.dp)) { Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) { Text("Nhập Giftcode", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black); OutlinedTextField(gift, { gift = it.uppercase() }, label = { Text("Mã quà tặng") }, modifier = Modifier.fillMaxWidth(), singleLine = true); Button(onClick = { scope.launch { api.redeemGiftCode(session, gift).onSuccess { onMessage("Đã nhận $it M4X COIN"); gift = "" }.onFailure { onMessage(it.message ?: "Giftcode không hợp lệ") } } }, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.Redeem, null); Text(" Nhận quà") } } }
+            ElevatedCard(shape = RoundedCornerShape(24.dp)) { Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) { Text("Nhập Giftcode", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black); OutlinedTextField(gift, { gift = it.uppercase() }, label = { Text("Mã quà tặng") }, modifier = Modifier.fillMaxWidth(), singleLine = true); Button(onClick = { scope.launch { api.redeemGiftCode(session, gift).onSuccess { onBalanceChanged(); onMessage("Đã nhận $it M4X COIN"); gift = "" }.onFailure { onMessage(it.message ?: "Giftcode không hợp lệ") } } }, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.Redeem, null); Text(" Nhận quà") } } }
         }
         item { SectionTitle("Top thành viên tuần", "Thưởng từ 5.000 đến 50.000 M4X COIN") }
         items(leaderboard.take(5)) { item -> LeaderRow(item) }
         item {
-            ElevatedCard(shape = RoundedCornerShape(24.dp), modifier = Modifier.clickable { scope.launch { api.claimAirdrop(session).onSuccess { onMessage("Bạn săn được $it M4X COIN!") }.onFailure { onMessage(it.message ?: "Airdrop đã có người nhận") } } }) {
+            ElevatedCard(shape = RoundedCornerShape(24.dp), modifier = Modifier.clickable { scope.launch { api.claimAirdrop(session).onSuccess { onBalanceChanged(); onMessage("Bạn săn được $it M4X COIN!") }.onFailure { onMessage(it.message ?: "Airdrop đã có người nhận") } } }) {
                 Row(Modifier.padding(18.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Default.RocketLaunch, null, tint = Color(0xFFFFC857)); Spacer(Modifier.width(12.dp)); Column { Text("Săn Airdrop điểm", fontWeight = FontWeight.Black); Text("Điểm rơi ngẫu nhiên: 100–2.000 M4X COIN") } }
             }
         }
