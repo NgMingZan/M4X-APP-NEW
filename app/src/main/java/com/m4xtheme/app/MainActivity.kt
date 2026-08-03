@@ -109,6 +109,8 @@ private fun AuthScreen(api: SupabaseApi, onSuccess: (Session) -> Unit, onMessage
     var username by remember { mutableStateOf("") }
     var displayName by remember { mutableStateOf("") }
     var loading by remember { mutableStateOf(false) }
+    var authMessage by remember { mutableStateOf<String?>(null) }
+    var authError by remember { mutableStateOf(false) }
 
     Surface(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.Center) {
@@ -130,14 +132,34 @@ private fun AuthScreen(api: SupabaseApi, onSuccess: (Session) -> Unit, onMessage
             Button(
                 enabled = !loading && SupabaseConfig.configured,
                 onClick = {
+                    authMessage = null
+                    authError = false
                     loading = true
                     scope.launch {
                         val result = if (register) api.signUp(email, password, username, displayName) else api.signIn(email, password)
-                        result.onSuccess(onSuccess).onFailure { onMessage(it.message ?: "Có lỗi xảy ra") }
+                        result.onSuccess(onSuccess).onFailure {
+                            authError = true
+                            authMessage = it.message ?: "Có lỗi xảy ra"
+                            onMessage(authMessage!!)
+                        }
                         loading = false
                     }
                 }, modifier = Modifier.fillMaxWidth()
-            ) { Text(if (loading) "Đang xử lý…" else if (register) "Đăng ký" else "Đăng nhập") }
+            ) {
+                if (loading) {
+                    CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                    Spacer(Modifier.width(8.dp))
+                }
+                Text(if (loading) "Đang xử lý…" else if (register) "Đăng ký" else "Đăng nhập")
+            }
+            authMessage?.let {
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    text = it,
+                    color = if (authError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            }
             TextButton(onClick = { register = !register }, modifier = Modifier.align(Alignment.CenterHorizontally)) {
                 Text(if (register) "Đã có tài khoản? Đăng nhập" else "Chưa có tài khoản? Đăng ký")
             }
