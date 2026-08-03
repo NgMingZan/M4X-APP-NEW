@@ -1,22 +1,37 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
-</div>
+# M4X Theme v2 Clean
 
-# Run and deploy your AI Studio app
+Ứng dụng Android Native Kotlin + Jetpack Compose, kết nối Supabase trực tiếp.
 
-This contains everything you need to run your app locally.
+## Có sẵn
+- Đăng ký/đăng nhập Supabase.
+- `minhdan` trở thành Super Admin đầu tiên.
+- App không có dữ liệu mẫu.
+- Chọn file `.mtz/.zip` bằng trình chọn file Android.
+- Upload vào bucket `themes`, trạng thái `pending`.
+- Admin duyệt/từ chối; chỉ `approved` xuất hiện công khai.
+- Super Admin bổ nhiệm/hạ quyền Admin.
+- Banner, theme, quyền và cấu hình cập nhật online từ Supabase.
+- Kiểm tra phiên bản APK online qua bảng `app_config`.
 
-View your app in AI Studio: https://ai.studio/apps/64870414-7aca-4954-8283-8a605e45b96c
+## Giới hạn OTA
+Không cần cài lại APK khi thay theme, banner, thông báo, quyền, trạng thái duyệt hoặc link cập nhật.
+Thay đổi mã Kotlin, quyền Android, WebView/native hoặc SDK vẫn cần build APK mới. App sẽ đọc `app_config.update_url` để báo người dùng tải bản mới.
 
-## Run Locally
+## Chuẩn bị Supabase
+1. SQL Editor → chạy toàn bộ `SUPABASE_V2_SETUP.sql`.
+2. Authentication → bật Email/Password.
+3. Bucket `themes` sẽ được SQL tạo/cấu hình public, giới hạn 100 MB.
 
-**Prerequisites:**  [Android Studio](https://developer.android.com/studio)
+## GitHub Secrets
+Trong repo app tạo:
+- `SUPABASE_URL`
+- `SUPABASE_ANON_KEY` (publishable/anon key, không dùng service_role)
 
-
-1. Open Android Studio
-2. Select **Open** and choose the directory containing this project
-3. Allow Android Studio to fix any incompatibilities as it imports the project.
-4. Create a file named `.env` in the project directory and set `GEMINI_API_KEY` in that file to your Gemini API key (see `.env.example` for an example)
-5. Remove this line from the app's `build.gradle.kts` file: `signingConfig = signingConfigs.getByName("debugConfig")`
-6. Run the app on an emulator or physical device
-7. If you have already published your app in AI Studio, please [request upload key reset](https://support.google.com/googleplay/android-developer/answer/9842756#zippy=%2Crequest-an-upload-key-reset) in Google Play Console.
+## Cập nhật banner và phiên bản online
+Trong Supabase Table Editor → `app_config` → dòng `main`:
+- `home_banner_title`, `home_banner_subtitle`: đổi banner chữ ngay.
+- `latest_version_code`: mã phiên bản mới, phải lớn hơn APK hiện tại (20).
+- `latest_version_name`: ví dụ `2.1.0`.
+- `update_url`: link APK/Release.
+- `update_message`: nội dung cập nhật.
+- `force_update`: dữ liệu đã có; giao diện hiện tại chỉ hiển thị nút cập nhật, chưa khóa cưỡng bức.
