@@ -1,0 +1,20 @@
+{
+  "versionCode": 39,
+  "versionName": "3.0.9",
+  "apkUrl": "https://github.com/NgMingZan/M4X-APP-NEW/releases/latest/download/M4X-Theme.apk",
+  "title": "M4X Theme v3.0.9",
+  "message": "Thêm cập nhật ứng dụng trực tiếp trong app.",
+  "forceUpdate": false
+}
+
+cd /storage/emulated/0/Download/m4x_actions
+
+cat > update.json <<'EOF'
+{
+  "versionCode": 39,
+  "versionName": "3.0.9",
+  "apkUrl": "https://github.com/NgMingZan/M4X-APP-NEW/releases/latest/download/M4X-Theme.apk",
+  "title": "M4X Theme v3.0.9",
+  "message": "Thêm cập nhật ứng dụng trực tiếp trong app.",
+  "forceUpdate": false
+}
