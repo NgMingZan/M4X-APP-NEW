@@ -26,7 +26,14 @@ object SupabaseConfig {
 }
 
 data class Session(val token: String, val userId: String, val email: String)
-data class Profile(val id: String, val username: String, val displayName: String, val role: String, val points: Long)
+data class Profile(
+    val id: String,
+    val username: String,
+    val displayName: String,
+    val role: String,
+    val points: Long,
+    val avatarUrl: String = ""
+)
 data class ThemeItem(
     val id: String,
     val ownerId: String,
@@ -57,7 +64,26 @@ data class LeaderboardItem(
     val activeMinutes: Int = 0
 )
 data class ChestResult(val reward: Int, val balance: Long, val message: String)
-data class InventoryItem(val id: String, val name: String, val type: String)
+data class InventoryItem(
+    val id: String,
+    val itemId: String,
+    val name: String,
+    val type: String
+)
+data class ShopItem(
+    val id: String,
+    val name: String,
+    val type: String,
+    val price: Int,
+    val imageUrl: String,
+    val limited: Boolean
+)
+data class MiniGameResult(
+    val reward: Int,
+    val balance: Long,
+    val message: String,
+    val remaining: Int
+)
 
 data class RemoteConfig(
     val minVersionCode: Int = 0,
@@ -117,10 +143,10 @@ class SupabaseApi(private val context: Context) {
     }
 
     suspend fun profile(session: Session): Result<Profile> = io {
-        val a = get("/rest/v1/profiles?id=eq.${session.userId}&select=id,username,display_name,role,points", session)
+        val a = get("/rest/v1/profiles?id=eq.${session.userId}&select=id,username,display_name,role,points,avatar_url", session)
         if (a.length() == 0) throw IOException("Không tìm thấy hồ sơ. Hãy kiểm tra trigger profiles trong Supabase")
         val o = a.getJSONObject(0)
-        Profile(o.getString("id"), o.optString("username"), o.optString("display_name"), o.optString("role", "user"), o.optLong("points"))
+        Profile(o.getString("id"), o.optString("username"), o.optString("display_name"), o.optString("role", "user"), o.optLong("points"), o.optString("avatar_url"))
     }
 
     suspend fun approvedThemes(session: Session): Result<List<ThemeItem>> = io {
@@ -140,9 +166,9 @@ class SupabaseApi(private val context: Context) {
     }
 
     suspend fun users(session: Session): Result<List<Profile>> = io {
-        val a = get("/rest/v1/profiles?select=id,username,display_name,role,points&order=created_at.desc", session)
+        val a = get("/rest/v1/profiles?select=id,username,display_name,role,points,avatar_url&order=created_at.desc", session)
         List(a.length()) { i -> a.getJSONObject(i).let { o ->
-            Profile(o.getString("id"), o.optString("username"), o.optString("display_name"), o.optString("role", "user"), o.optLong("points"))
+            Profile(o.getString("id"), o.optString("username"), o.optString("display_name"), o.optString("role", "user"), o.optLong("points"), o.optString("avatar_url"))
         } }
     }
 
@@ -351,8 +377,84 @@ class SupabaseApi(private val context: Context) {
     }
 
     suspend fun inventory(session: Session): Result<List<InventoryItem>> = io {
-        val a = get("/rest/v1/user_inventory?user_id=eq.${session.userId}&select=id,item_name,item_type", session)
-        List(a.length()) { i -> a.getJSONObject(i).let { InventoryItem(it.getString("id"), it.optString("item_name"), it.optString("item_type")) } }
+        val a = get("/rest/v1/user_inventory?user_id=eq.${session.userId}&select=id,item_id,item_name,item_type&order=acquired_at.desc", session)
+        List(a.length()) { i -> a.getJSONObject(i).let {
+            InventoryItem(
+                id = it.getString("id"),
+                itemId = it.optString("item_id"),
+                name = it.optString("item_name"),
+                type = it.optString("item_type")
+            )
+        } }
+    }
+
+    suspend fun shopItems(session: Session): Result<List<ShopItem>> = io {
+        val a = get("/rest/v1/shop_items?active=eq.true&select=id,name,item_type,price,image_url,limited&order=price.asc", session)
+        List(a.length()) { i -> a.getJSONObject(i).let {
+            ShopItem(
+                id = it.getString("id"),
+                name = it.optString("name"),
+                type = it.optString("item_type"),
+                price = it.optInt("price"),
+                imageUrl = it.optString("image_url"),
+                limited = it.optBoolean("limited")
+            )
+        } }
+    }
+
+    suspend fun purchaseShopItem(session: Session, itemId: String): Result<Long> = io {
+        val body = JSONObject().put("p_item_id", itemId)
+        val req = base("${SupabaseConfig.url}/rest/v1/rpc/purchase_shop_item", session)
+            .post(body.toString().toRequestBody(jsonType)).build()
+        http.newCall(req).execute().use { res ->
+            val text = res.body?.string().orEmpty()
+            if (!res.isSuccessful) throw IOException(error(text, "Không thể mua vật phẩm"))
+            text.trim().trim('"').toLongOrNull() ?: throw IOException("Không đọc được số dư mới")
+        }
+    }
+
+    suspend fun playMiniGame(session: Session, gameCode: String, choice: Int): Result<MiniGameResult> = io {
+        val body = JSONObject().put("p_game_code", gameCode).put("p_choice", choice)
+        val req = base("${SupabaseConfig.url}/rest/v1/rpc/play_m4x_minigame", session)
+            .post(body.toString().toRequestBody(jsonType)).build()
+        http.newCall(req).execute().use { res ->
+            val text = res.body?.string().orEmpty()
+            if (!res.isSuccessful) throw IOException(error(text, "Không thể chơi minigame"))
+            val o = if (text.trim().startsWith("[")) JSONArray(text).getJSONObject(0) else JSONObject(text)
+            MiniGameResult(
+                reward = o.optInt("reward"),
+                balance = o.optLong("balance"),
+                message = o.optString("message"),
+                remaining = o.optInt("remaining")
+            )
+        }
+    }
+
+    suspend fun updateAvatar(session: Session, imageUri: Uri): Result<Profile> = io {
+        val resolver = context.contentResolver
+        val mime = resolver.getType(imageUri).orEmpty()
+        require(mime.startsWith("image/")) { "Hãy chọn một tệp ảnh" }
+        val original = fileName(resolver, imageUri)
+        val ext = original.substringAfterLast('.', "jpg").lowercase().take(5)
+        val path = "${session.userId}/avatar/${UUID.randomUUID()}.$ext"
+        uploadFile(session, imageUri, path)
+        val publicUrl = "${SupabaseConfig.url}/storage/v1/object/public/themes/$path"
+        patch(
+            "/rest/v1/profiles?id=eq.${session.userId}",
+            JSONObject().put("avatar_url", publicUrl).toString(),
+            session
+        )
+        val a = get("/rest/v1/profiles?id=eq.${session.userId}&select=id,username,display_name,role,points,avatar_url", session)
+        if (a.length() == 0) throw IOException("Không tìm thấy hồ sơ")
+        val o = a.getJSONObject(0)
+        Profile(
+            o.getString("id"),
+            o.optString("username"),
+            o.optString("display_name"),
+            o.optString("role", "user"),
+            o.optLong("points"),
+            o.optString("avatar_url")
+        )
     }
 
     suspend fun hasActiveAirdrop(session: Session): Result<Boolean> = io {

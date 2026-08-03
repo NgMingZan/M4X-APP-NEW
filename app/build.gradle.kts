@@ -21,8 +21,8 @@ android {
         applicationId = "com.aistudio.m4xtheme.app"
         minSdk = 24
         targetSdk = 35
-        versionCode = 40
-        versionName = "3.0.10"
+        versionCode = 41
+        versionName = "3.0.11"
 
         buildConfigField("String", "SUPABASE_URL", quoted(supabase.getProperty("SUPABASE_URL", "")))
         buildConfigField("String", "SUPABASE_ANON_KEY", quoted(supabase.getProperty("SUPABASE_ANON_KEY", "")))

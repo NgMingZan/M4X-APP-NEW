@@ -26,7 +26,9 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.verticalScroll
@@ -48,9 +50,11 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -259,7 +263,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-enum class Tab { HOME, QUEST, UPLOAD, WEB, PROFILE, ADMIN }
+enum class Tab { HOME, QUEST, UPLOAD, WEB, PROFILE, SHOP, GAMES, ADMIN }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -337,9 +341,12 @@ private fun M4XApp() {
             TopAppBar(
                 title = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(Modifier.size(42.dp).clip(RoundedCornerShape(14.dp)).background(Brush.linearGradient(listOf(Color(0xFF8B5CFF), Color(0xFF15C7E8)))), contentAlignment = Alignment.Center) {
-                            Text("M4X", fontWeight = FontWeight.Black, color = Color.White)
-                        }
+                        Image(
+                            painter = painterResource(R.mipmap.ic_launcher),
+                            contentDescription = "Logo M4X Theme",
+                            modifier = Modifier.size(48.dp).clip(RoundedCornerShape(15.dp)),
+                            contentScale = ContentScale.Crop
+                        )
                         Spacer(Modifier.width(12.dp))
                         Column { Text("M4X Theme", fontWeight = FontWeight.Black); Text("M4X COIN • Online v${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary) }
                     }
@@ -356,7 +363,7 @@ private fun M4XApp() {
                 Nav(tab == Tab.QUEST, Icons.Default.Map, "Nhiệm vụ") { tab = Tab.QUEST }
                 Nav(tab == Tab.UPLOAD, Icons.Default.AddCircle, "Đăng") { tab = Tab.UPLOAD }
                 Nav(tab == Tab.WEB, Icons.Default.Public, "M4X WEB") { tab = Tab.WEB }
-                Nav(tab == Tab.PROFILE, Icons.Default.Person, "Hồ sơ") { tab = Tab.PROFILE }
+                Nav(tab in setOf(Tab.PROFILE, Tab.SHOP, Tab.GAMES), Icons.Default.Person, "Hồ sơ") { tab = Tab.PROFILE }
             }
         },
         snackbarHost = { SnackbarHost(snack) }
@@ -367,7 +374,38 @@ private fun M4XApp() {
                 Tab.QUEST -> QuestHub(api, session!!, profile, onCoinChanged = { newBalance -> profile = profile?.copy(points = newBalance) }, onMessage = { message = it })
                 Tab.UPLOAD -> UploadScreen(api, session!!, onMessage = { message = it }, onDone = { tab = Tab.PROFILE })
                 Tab.WEB -> M4XWebScreen(config = config, isAdmin = isAdmin, onOpen = { fullscreenWebUrl = it })
-                Tab.PROFILE -> ProfileScreen(api, session!!, profile, config, isAdmin, checkingUpdate, availableUpdate, onCheckUpdate = { checkUpdate(true) }, onOpenAdmin = { tab = Tab.ADMIN }, onLogout = { api.signOut(); session = null; profile = null }, onMessage = { message = it })
+                Tab.PROFILE -> ProfileScreen(
+                    api = api,
+                    session = session!!,
+                    profile = profile,
+                    config = config,
+                    isAdmin = isAdmin,
+                    checkingUpdate = checkingUpdate,
+                    availableUpdate = availableUpdate,
+                    onCheckUpdate = { checkUpdate(true) },
+                    onOpenShop = { tab = Tab.SHOP },
+                    onOpenGames = { tab = Tab.GAMES },
+                    onProfileChanged = { profile = it },
+                    onOpenAdmin = { tab = Tab.ADMIN },
+                    onLogout = { api.signOut(); session = null; profile = null },
+                    onMessage = { message = it }
+                )
+                Tab.SHOP -> ShopScreen(
+                    api = api,
+                    session = session!!,
+                    profile = profile,
+                    onBack = { tab = Tab.PROFILE },
+                    onCoinChanged = { profile = profile?.copy(points = it) },
+                    onMessage = { message = it }
+                )
+                Tab.GAMES -> MiniGamesScreen(
+                    api = api,
+                    session = session!!,
+                    profile = profile,
+                    onBack = { tab = Tab.PROFILE },
+                    onCoinChanged = { profile = profile?.copy(points = it) },
+                    onMessage = { message = it }
+                )
                 Tab.ADMIN -> AdminScreen(api, session!!, profile, config, onConfigChanged = { config = it }, onMessage = { message = it })
             }
             if (showAirdropChest) {
@@ -1001,21 +1039,181 @@ private fun AdminGiftCode(api: SupabaseApi, session: Session, onMessage: (String
 @Composable private fun UserAdminRow(u: Profile, canEdit: Boolean, click: () -> Unit) { ElevatedCard(shape = RoundedCornerShape(18.dp)) { Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) { Box(Modifier.size(46.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primaryContainer), contentAlignment = Alignment.Center) { Text(u.displayName.take(1).uppercase().ifBlank { "M" }, fontWeight = FontWeight.Black) }; Spacer(Modifier.width(12.dp)); Column(Modifier.weight(1f)) { Text(u.displayName.ifBlank { u.username }, fontWeight = FontWeight.Bold); Text("@${u.username} • ${u.role} • ${u.points} coin", color = MaterialTheme.colorScheme.onSurfaceVariant) }; if (canEdit && u.role != "super_admin") TextButton(onClick = click) { Text(if (u.role == "admin") "Hạ quyền" else "Lên Admin") } } } }
 
 @Composable
-private fun ProfileScreen(api: SupabaseApi, session: Session, profile: Profile?, config: RemoteConfig, isAdmin: Boolean, checkingUpdate: Boolean, availableUpdate: AppUpdateInfo?, onCheckUpdate: () -> Unit, onOpenAdmin: () -> Unit, onLogout: () -> Unit, onMessage: (String) -> Unit) {
-    var mine by remember { mutableStateOf<List<ThemeItem>>(emptyList()) }; var inventory by remember { mutableStateOf<List<InventoryItem>>(emptyList()) }
-    LaunchedEffect(Unit) { api.myThemes(session).onSuccess { mine = it }; api.inventory(session).onSuccess { inventory = it } }
+private fun ProfileScreen(
+    api: SupabaseApi,
+    session: Session,
+    profile: Profile?,
+    config: RemoteConfig,
+    isAdmin: Boolean,
+    checkingUpdate: Boolean,
+    availableUpdate: AppUpdateInfo?,
+    onCheckUpdate: () -> Unit,
+    onOpenShop: () -> Unit,
+    onOpenGames: () -> Unit,
+    onProfileChanged: (Profile) -> Unit,
+    onOpenAdmin: () -> Unit,
+    onLogout: () -> Unit,
+    onMessage: (String) -> Unit
+) {
+    var mine by remember { mutableStateOf<List<ThemeItem>>(emptyList()) }
+    var inventory by remember { mutableStateOf<List<InventoryItem>>(emptyList()) }
+    var avatarLoading by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val avatarPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null && !avatarLoading) {
+            scope.launch {
+                avatarLoading = true
+                api.updateAvatar(session, uri)
+                    .onSuccess {
+                        onProfileChanged(it)
+                        onMessage("Đã cập nhật ảnh đại diện")
+                    }
+                    .onFailure { onMessage(it.message ?: "Không thể đổi ảnh đại diện") }
+                avatarLoading = false
+            }
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        api.myThemes(session).onSuccess { mine = it }
+        api.inventory(session).onSuccess { inventory = it }
+    }
     val downloads = mine.sumOf { it.downloads }
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        item { Card(shape = RoundedCornerShape(32.dp)) { Box(Modifier.background(Brush.linearGradient(listOf(Color(0xFF4A247B), Color(0xFF075D72)))).padding(22.dp)) { Column { Row(verticalAlignment = Alignment.CenterVertically) { Box(Modifier.size(88.dp).clip(CircleShape).background(Color.White.copy(alpha = .14f)), contentAlignment = Alignment.Center) { Icon(Icons.Default.Person, null, Modifier.size(52.dp)) }; Spacer(Modifier.width(16.dp)); Column(Modifier.weight(1f)) { Row(verticalAlignment = Alignment.CenterVertically) { Text(profile?.displayName?.ifBlank { "M4X Member" } ?: "M4X Member", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Black); Spacer(Modifier.width(6.dp)); Icon(Icons.Default.Verified, null, tint = Color(0xFF32D6FF)) }; Text("@${profile?.username}"); Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) { AssistChip(onClick = {}, label = { Text("VIP 1") }); AssistChip(onClick = {}, label = { Text("LV.3") }); AssistChip(onClick = {}, label = { Text(profile?.role ?: "user") }) } } }; Spacer(Modifier.height(18.dp)); Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { ProfileStat("M4X COIN", "${profile?.points ?: 0}", Modifier.weight(1f)); ProfileStat("Theme", mine.size.toString(), Modifier.weight(1f)); ProfileStat("Lượt tải", downloads.toString(), Modifier.weight(1f)) } } } } }
-        item { SectionTitle("Kho vật phẩm cá nhân", "Khung avatar, màu tên, hiệu ứng, VIP và vật phẩm đã mua") }
-        item { Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(10.dp)) { if (inventory.isEmpty()) repeat(4) { InventoryCard("Vật phẩm ${it + 1}", "Chưa sở hữu") } else inventory.forEach { InventoryCard(it.name, it.type) } } }
-        item { FormCard("Thành tích", Icons.Default.EmojiEvents) { Text("Theme đã đăng: ${mine.size}"); Text("Tổng lượt tải: $downloads"); Text("Huy hiệu: Khách mời sinh nhật ADMIN"); Text("Xếp hạng tuần: Đang cập nhật online") } }
+    val roleText = when (profile?.role) {
+        "super_admin" -> "SUPER ADMIN"
+        "admin" -> "ADMIN"
+        "creator" -> "NHÀ SÁNG TẠO"
+        else -> "THÀNH VIÊN"
+    }
+
+    LazyColumn(
+        Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        item {
+            Card(shape = RoundedCornerShape(30.dp)) {
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .background(Brush.linearGradient(listOf(Color(0xFF4A247B), Color(0xFF075D72))))
+                        .padding(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(18.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(92.dp)) {
+                            Surface(
+                                modifier = Modifier.fillMaxSize(),
+                                shape = CircleShape,
+                                color = Color.White.copy(alpha = .14f),
+                                border = androidx.compose.foundation.BorderStroke(2.dp, Color.White.copy(alpha = .22f))
+                            ) {
+                                if (profile?.avatarUrl.isNullOrBlank()) {
+                                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                        Icon(Icons.Default.Person, null, Modifier.size(52.dp))
+                                    }
+                                } else {
+                                    AsyncImage(
+                                        model = profile?.avatarUrl,
+                                        contentDescription = "Ảnh đại diện",
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentScale = ContentScale.Crop
+                                    )
+                                }
+                            }
+                            FilledIconButton(
+                                onClick = { avatarPicker.launch("image/*") },
+                                enabled = !avatarLoading,
+                                modifier = Modifier.size(34.dp).align(Alignment.BottomEnd),
+                                colors = IconButtonDefaults.filledIconButtonColors(containerColor = MaterialTheme.colorScheme.primary)
+                            ) {
+                                if (avatarLoading) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                                else Icon(Icons.Default.PhotoCamera, "Đổi ảnh đại diện", Modifier.size(18.dp))
+                            }
+                        }
+                        Spacer(Modifier.width(16.dp))
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    profile?.displayName?.ifBlank { "M4X Member" } ?: "M4X Member",
+                                    style = MaterialTheme.typography.headlineSmall,
+                                    fontWeight = FontWeight.Black,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f, fill = false)
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                Icon(Icons.Default.Verified, null, tint = Color(0xFF32D6FF), modifier = Modifier.size(22.dp))
+                            }
+                            Text("@${profile?.username.orEmpty()}", color = Color.White.copy(alpha = .82f))
+                            Row(
+                                Modifier.horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(7.dp)
+                            ) {
+                                ProfileBadge("VIP 1")
+                                ProfileBadge("LV.3")
+                                ProfileBadge(roleText)
+                            }
+                        }
+                    }
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        ProfileStat("M4X COIN", "${profile?.points ?: 0}", Modifier.weight(1f))
+                        ProfileStat("Theme", mine.size.toString(), Modifier.weight(1f))
+                        ProfileStat("Lượt tải", downloads.toString(), Modifier.weight(1f))
+                    }
+                }
+            }
+        }
+
+        item {
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                QuickFeatureCard(
+                    title = "Cửa hàng M4X",
+                    subtitle = "Dùng coin mua vật phẩm",
+                    icon = Icons.Default.Storefront,
+                    modifier = Modifier.weight(1f),
+                    onClick = onOpenShop
+                )
+                QuickFeatureCard(
+                    title = "Minigame",
+                    subtitle = "Chơi để kiếm coin",
+                    icon = Icons.Default.SportsEsports,
+                    modifier = Modifier.weight(1f),
+                    onClick = onOpenGames
+                )
+            }
+        }
+
+        item { SectionTitle("Kho vật phẩm cá nhân", "Khung avatar, màu tên, hiệu ứng và vật phẩm đã mua") }
+        item {
+            Row(
+                Modifier.horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                if (inventory.isEmpty()) {
+                    InventoryCard("Chưa có vật phẩm", "Mở Cửa hàng M4X")
+                } else {
+                    inventory.forEach { InventoryCard(it.name, friendlyItemType(it.type)) }
+                }
+            }
+        }
+        item {
+            FormCard("Thành tích", Icons.Default.EmojiEvents) {
+                Text("Theme đã đăng: ${mine.size}")
+                Text("Tổng lượt tải: $downloads")
+                Text("Vai trò: $roleText")
+                Text("Xếp hạng tuần: Đang cập nhật online")
+            }
+        }
         item {
             FormCard("Cập nhật ứng dụng", Icons.Default.SystemUpdate) {
                 Text("Phiên bản hiện tại: ${BuildConfig.VERSION_NAME}")
                 Text(
-                    availableUpdate?.let { "Có bản mới ${it.versionName}" } ?: "Kiểm tra bản phát hành mới của M4X Theme",
-                    color = if (availableUpdate != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                    availableUpdate?.let { "Có bản mới ${it.versionName}" }
+                        ?: "Kiểm tra bản phát hành mới của M4X Theme",
+                    color = if (availableUpdate != null) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Button(onClick = onCheckUpdate, enabled = !checkingUpdate, modifier = Modifier.fillMaxWidth()) {
                     if (checkingUpdate) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
@@ -1024,10 +1222,334 @@ private fun ProfileScreen(api: SupabaseApi, session: Session, profile: Profile?,
                 }
             }
         }
-        if (isAdmin) item { Button(onClick = onOpenAdmin, modifier = Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(18.dp)) { Icon(Icons.Default.AdminPanelSettings, null); Text(" Mở trung tâm Admin") } }
-        item { OutlinedButton(onClick = onLogout, modifier = Modifier.fillMaxWidth().height(54.dp)) { Icon(Icons.Default.Logout, null); Text(" Đăng xuất") } }
+        if (isAdmin) {
+            item {
+                Button(
+                    onClick = onOpenAdmin,
+                    modifier = Modifier.fillMaxWidth().height(56.dp),
+                    shape = RoundedCornerShape(18.dp)
+                ) {
+                    Icon(Icons.Default.AdminPanelSettings, null)
+                    Text(" Mở trung tâm Admin")
+                }
+            }
+        }
+        item {
+            OutlinedButton(onClick = onLogout, modifier = Modifier.fillMaxWidth().height(54.dp)) {
+                Icon(Icons.Default.Logout, null)
+                Text(" Đăng xuất")
+            }
+        }
     }
 }
-@Composable private fun ProfileStat(label: String, value: String, modifier: Modifier) { Surface(modifier, color = Color.White.copy(alpha = .1f), shape = RoundedCornerShape(16.dp)) { Column(Modifier.padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally) { Text(value, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black); Text(label, style = MaterialTheme.typography.labelSmall) } } }
+
+@Composable
+private fun ProfileBadge(text: String) {
+    Surface(
+        shape = RoundedCornerShape(10.dp),
+        color = Color.White.copy(alpha = .10f),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = .24f))
+    ) {
+        Text(
+            text = text,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1
+        )
+    }
+}
+
+@Composable
+private fun QuickFeatureCard(
+    title: String,
+    subtitle: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    ElevatedCard(onClick = onClick, modifier = modifier, shape = RoundedCornerShape(20.dp)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Icon(icon, null, tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(32.dp))
+            Text(title, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(subtitle, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+@Composable
+private fun ShopScreen(
+    api: SupabaseApi,
+    session: Session,
+    profile: Profile?,
+    onBack: () -> Unit,
+    onCoinChanged: (Long) -> Unit,
+    onMessage: (String) -> Unit
+) {
+    var products by remember { mutableStateOf<List<ShopItem>>(emptyList()) }
+    var inventory by remember { mutableStateOf<List<InventoryItem>>(emptyList()) }
+    var loading by remember { mutableStateOf(true) }
+    var buyingId by remember { mutableStateOf<String?>(null) }
+    var balance by remember(profile?.points) { mutableLongStateOf(profile?.points ?: 0L) }
+    val scope = rememberCoroutineScope()
+
+    fun reload() {
+        scope.launch {
+            loading = true
+            api.shopItems(session).onSuccess { products = it }.onFailure { onMessage(it.message ?: "Không tải được cửa hàng") }
+            api.inventory(session).onSuccess { inventory = it }
+            loading = false
+        }
+    }
+    LaunchedEffect(Unit) { reload() }
+    val ownedIds = inventory.map { it.itemId }.filter { it.isNotBlank() }.toSet()
+
+    LazyColumn(
+        Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        item {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "Quay lại") }
+                Column(Modifier.weight(1f)) {
+                    Text("Cửa hàng M4X", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Black)
+                    Text("Dùng M4X COIN để sở hữu vật phẩm", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
+        item {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+                shape = RoundedCornerShape(22.dp)
+            ) {
+                Row(Modifier.fillMaxWidth().padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Paid, null, tint = Color(0xFFFFB800), modifier = Modifier.size(36.dp))
+                    Spacer(Modifier.width(12.dp))
+                    Column {
+                        Text("Số dư hiện tại", style = MaterialTheme.typography.labelLarge)
+                        Text("$balance M4X COIN", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Black)
+                    }
+                }
+            }
+        }
+        if (loading) {
+            item { Box(Modifier.fillMaxWidth().padding(40.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() } }
+        } else if (products.isEmpty()) {
+            item { EmptyState("Cửa hàng đang trống", "Admin chưa đăng vật phẩm mới") }
+        } else {
+            items(products, key = { it.id }) { product ->
+                val owned = product.id in ownedIds
+                ElevatedCard(shape = RoundedCornerShape(22.dp)) {
+                    Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Surface(
+                            modifier = Modifier.size(72.dp),
+                            shape = RoundedCornerShape(18.dp),
+                            color = MaterialTheme.colorScheme.secondaryContainer
+                        ) {
+                            if (product.imageUrl.isNotBlank()) {
+                                AsyncImage(
+                                    model = product.imageUrl,
+                                    contentDescription = product.name,
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentScale = ContentScale.Crop
+                                )
+                            } else {
+                                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                    Icon(Icons.Default.AutoAwesome, null, Modifier.size(36.dp), tint = MaterialTheme.colorScheme.secondary)
+                                }
+                            }
+                        }
+                        Spacer(Modifier.width(14.dp))
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(product.name, fontWeight = FontWeight.Black)
+                            Text(friendlyItemType(product.type), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            if (product.limited) Text("Vật phẩm giới hạn", color = MaterialTheme.colorScheme.tertiary, style = MaterialTheme.typography.labelMedium)
+                        }
+                        Button(
+                            enabled = !owned && buyingId == null && balance >= product.price,
+                            onClick = {
+                                buyingId = product.id
+                                scope.launch {
+                                    api.purchaseShopItem(session, product.id)
+                                        .onSuccess { newBalance ->
+                                            balance = newBalance
+                                            onCoinChanged(newBalance)
+                                            onMessage("Đã mua ${product.name}")
+                                            api.inventory(session).onSuccess { inventory = it }
+                                        }
+                                        .onFailure { onMessage(it.message ?: "Không thể mua vật phẩm") }
+                                    buyingId = null
+                                }
+                            }
+                        ) {
+                            if (buyingId == product.id) CircularProgressIndicator(Modifier.size(17.dp), strokeWidth = 2.dp)
+                            else Icon(if (owned) Icons.Default.Check else Icons.Default.Paid, null, Modifier.size(18.dp))
+                            Text(if (owned) " Đã có" else " ${product.price}")
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MiniGamesScreen(
+    api: SupabaseApi,
+    session: Session,
+    profile: Profile?,
+    onBack: () -> Unit,
+    onCoinChanged: (Long) -> Unit,
+    onMessage: (String) -> Unit
+) {
+    var balance by remember(profile?.points) { mutableLongStateOf(profile?.points ?: 0L) }
+    var selectedNumber by remember { mutableIntStateOf(1) }
+    var loadingGame by remember { mutableStateOf<String?>(null) }
+    var result by remember { mutableStateOf<MiniGameResult?>(null) }
+    val scope = rememberCoroutineScope()
+
+    fun play(game: String, choice: Int) {
+        if (loadingGame != null) return
+        loadingGame = game
+        scope.launch {
+            api.playMiniGame(session, game, choice)
+                .onSuccess {
+                    result = it
+                    balance = it.balance
+                    onCoinChanged(it.balance)
+                }
+                .onFailure { onMessage(it.message ?: "Không thể chơi minigame") }
+            loadingGame = null
+        }
+    }
+
+    LazyColumn(
+        Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        item {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "Quay lại") }
+                Column(Modifier.weight(1f)) {
+                    Text("Minigame M4X", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Black)
+                    Text("Chơi miễn phí để kiếm M4X COIN", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
+        item {
+            Surface(
+                color = MaterialTheme.colorScheme.primaryContainer,
+                shape = RoundedCornerShape(20.dp)
+            ) {
+                Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Paid, null, tint = Color(0xFFFFB800))
+                    Spacer(Modifier.width(10.dp))
+                    Text("Số dư: $balance M4X COIN", fontWeight = FontWeight.Black)
+                }
+            }
+        }
+        item {
+            FormCard("Đoán số M4X", Icons.Default.LooksOne) {
+                Text("Chọn một số từ 1 đến 5. Đoán đúng nhận 50 coin, chưa đúng vẫn nhận 5 coin.")
+                Text("Tối đa 5 lượt/ngày", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.secondary)
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    (1..5).forEach { number ->
+                        if (selectedNumber == number) {
+                            Button(onClick = { selectedNumber = number }, modifier = Modifier.weight(1f), contentPadding = PaddingValues(0.dp)) { Text("$number") }
+                        } else {
+                            OutlinedButton(onClick = { selectedNumber = number }, modifier = Modifier.weight(1f), contentPadding = PaddingValues(0.dp)) { Text("$number") }
+                        }
+                    }
+                }
+                Button(
+                    onClick = { play("number_guess", selectedNumber) },
+                    enabled = loadingGame == null,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    if (loadingGame == "number_guess") CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                    else Icon(Icons.Default.Casino, null)
+                    Text(" Đoán số $selectedNumber")
+                }
+            }
+        }
+        item {
+            FormCard("Lật thẻ may mắn", Icons.Default.Style) {
+                Text("Chọn một thẻ để nhận ngẫu nhiên từ 5 đến 50 M4X COIN.")
+                Text("Tối đa 3 lượt/ngày", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.secondary)
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    (1..3).forEach { card ->
+                        ElevatedButton(
+                            onClick = { play("lucky_card", card) },
+                            enabled = loadingGame == null,
+                            modifier = Modifier.weight(1f).height(86.dp),
+                            shape = RoundedCornerShape(16.dp)
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Icon(Icons.Default.Style, null)
+                                Text("Thẻ $card", fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
+                if (loadingGame == "lucky_card") LinearProgressIndicator(Modifier.fillMaxWidth())
+            }
+        }
+        item {
+            Text(
+                "Kết quả được quyết định trên máy chủ Supabase. Mỗi minigame có giới hạn lượt để tránh gian lận.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp)
+            )
+        }
+    }
+
+    result?.let { gameResult ->
+        AlertDialog(
+            onDismissRequest = { result = null },
+            icon = { Icon(Icons.Default.AutoAwesome, null) },
+            title = { Text(if (gameResult.reward > 0) "+${gameResult.reward} M4X COIN" else "Kết quả minigame") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(gameResult.message)
+                    Text("Còn ${gameResult.remaining} lượt hôm nay")
+                    Text("Số dư mới: ${gameResult.balance} coin", fontWeight = FontWeight.Bold)
+                }
+            },
+            confirmButton = { Button(onClick = { result = null }) { Text("Tiếp tục") } }
+        )
+    }
+}
+
+private fun friendlyItemType(type: String): String = when (type) {
+    "avatar_frame" -> "Khung avatar"
+    "name_color" -> "Màu tên"
+    "profile_effect" -> "Hiệu ứng hồ sơ"
+    "badge" -> "Huy hiệu"
+    "profile_background" -> "Nền hồ sơ"
+    else -> type.replace('_', ' ').ifBlank { "Vật phẩm M4X" }
+}
+
+@Composable
+private fun ProfileStat(label: String, value: String, modifier: Modifier) {
+    Surface(modifier, color = Color.White.copy(alpha = .1f), shape = RoundedCornerShape(16.dp)) {
+        Column(Modifier.padding(horizontal = 8.dp, vertical = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                value,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Black,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(label, style = MaterialTheme.typography.labelSmall, maxLines = 1)
+        }
+    }
+}
 @Composable private fun InventoryCard(name: String, type: String) { ElevatedCard(shape = RoundedCornerShape(20.dp), modifier = Modifier.width(150.dp)) { Column(Modifier.padding(14.dp), horizontalAlignment = Alignment.CenterHorizontally) { Icon(Icons.Default.AutoAwesome, null, Modifier.size(36.dp), tint = MaterialTheme.colorScheme.secondary); Spacer(Modifier.height(8.dp)); Text(name, fontWeight = FontWeight.Bold, maxLines = 1); Text(type, style = MaterialTheme.typography.labelSmall) } } }
 @Composable private fun EmptyState(title: String, subtitle: String) { Column(Modifier.fillMaxWidth().padding(vertical = 54.dp), horizontalAlignment = Alignment.CenterHorizontally) { Icon(Icons.Default.Inbox, null, Modifier.size(60.dp), tint = MaterialTheme.colorScheme.primary); Spacer(Modifier.height(14.dp)); Text(title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Black); Text(subtitle, color = MaterialTheme.colorScheme.onSurfaceVariant) } }
