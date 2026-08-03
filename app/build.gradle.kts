@@ -85,7 +85,9 @@ val buildRustThemeValidator by tasks.registering(Exec::class) {
     inputs.dir(rustSources)
     outputs.dir(jniOutput)
 
-    workingDir(rootProject.projectDir)
+    // cargo-ndk chạy `cargo metadata` trước khi chuyển tiếp lệnh build.
+    // Vì vậy phải đứng ngay trong thư mục chứa Cargo.toml.
+    workingDir(rustManifest.parentFile)
     commandLine(
         "cargo",
         "ndk",
@@ -95,8 +97,7 @@ val buildRustThemeValidator by tasks.registering(Exec::class) {
         "-P", "24",
         "-o", jniOutput.absolutePath,
         "build",
-        "--release",
-        "--manifest-path", rustManifest.absolutePath
+        "--release"
     )
 }
 

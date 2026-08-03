@@ -53,8 +53,14 @@ jobs:
       - name: Install cargo-ndk
         run: cargo install cargo-ndk --locked
 
+      - name: Verify Rust project path
+        run: |
+          test -f rust/m4x_theme_core/Cargo.toml
+          test -f rust/m4x_theme_core/src/lib.rs
+
       - name: Test Rust core
-        run: cargo test --manifest-path rust/m4x_theme_core/Cargo.toml
+        working-directory: rust/m4x_theme_core
+        run: cargo test
 
       - name: Configure Supabase
         shell: bash
