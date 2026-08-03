@@ -16,13 +16,22 @@ fun quoted(value: String): String = "\"" + value.replace("\\", "\\\\").replace("
 android {
     namespace = "com.m4xtheme.app"
     compileSdk = 35
+    ndkVersion = "28.1.13356709"
 
     defaultConfig {
         applicationId = "com.aistudio.m4xtheme.app"
         minSdk = 24
         targetSdk = 35
-        versionCode = 43
-        versionName = "3.1.0"
+        versionCode = 44
+        versionName = "3.1.1"
+
+        ndk {
+            abiFilters += listOf(
+                "arm64-v8a",
+                "armeabi-v7a",
+                "x86_64"
+            )
+        }
 
         buildConfigField("String", "SUPABASE_URL", quoted(supabase.getProperty("SUPABASE_URL", "")))
         buildConfigField("String", "SUPABASE_ANON_KEY", quoted(supabase.getProperty("SUPABASE_ANON_KEY", "")))
@@ -58,3 +67,40 @@ dependencies {
     implementation("io.coil-kt:coil-compose:2.7.0")
     debugImplementation("androidx.compose.ui:ui-tooling")
 }
+
+// === M4X RUST THEME VALIDATOR ===
+val buildRustThemeValidator by tasks.registering(Exec::class) {
+    group = "rust"
+    description = "Build Rust theme validator for Android ABIs"
+
+    val rustManifest = rootProject.file(
+        "rust/m4x_theme_core/Cargo.toml"
+    )
+    val rustSources = rootProject.file(
+        "rust/m4x_theme_core/src"
+    )
+    val jniOutput = project.file("src/main/jniLibs")
+
+    inputs.file(rustManifest)
+    inputs.dir(rustSources)
+    outputs.dir(jniOutput)
+
+    workingDir(rootProject.projectDir)
+    commandLine(
+        "cargo",
+        "ndk",
+        "-t", "arm64-v8a",
+        "-t", "armeabi-v7a",
+        "-t", "x86_64",
+        "-P", "24",
+        "-o", jniOutput.absolutePath,
+        "build",
+        "--release",
+        "--manifest-path", rustManifest.absolutePath
+    )
+}
+
+tasks.named("preBuild").configure {
+    dependsOn(buildRustThemeValidator)
+}
+

@@ -1,5 +1,7 @@
 package com.m4xtheme.app
 
+import com.m4xtheme.app.rust.RustThemeValidator
+import com.m4xtheme.app.rust.ThemeValidationResult
 import android.content.ContentResolver
 import android.content.Context
 import android.net.Uri
@@ -50,7 +52,12 @@ data class ThemeItem(
     val downloads: Long,
     val rating: Double,
     val createdAt: String,
-    val coinPrice: Int = 0
+    val coinPrice: Int = 0,
+    val clientValidationStatus: String = "unchecked",
+    val clientValidationMessage: String = "",
+    val clientFileSha256: String = "",
+    val clientFileSizeBytes: Long = 0L,
+    val clientValidationAt: String = ""
 )
 
 data class EventItem(val id: String, val title: String, val description: String, val startAt: String, val endAt: String, val active: Boolean)
@@ -274,10 +281,20 @@ class SupabaseApi(private val context: Context) {
         require(fileUri != null || driveUrl.isNotBlank()) { "Hãy chọn file hoặc dán link Google Drive" }
         if (driveUrl.isNotBlank()) require(driveUrl.startsWith("https://")) { "Link Drive phải bắt đầu bằng https://" }
 
+        var clientValidation: ThemeValidationResult? = null
         var publicUrl = ""
         if (fileUri != null) {
             val name = fileName(context.contentResolver, fileUri)
             require(name.endsWith(".mtz", true) || name.endsWith(".zip", true)) { "Chỉ nhận file .mtz hoặc .zip" }
+            val validation = RustThemeValidator.validate(
+                context = context,
+                uri = fileUri,
+                maxSizeBytes = RustThemeValidator.DEFAULT_MAX_SIZE_BYTES
+            ).getOrThrow()
+            require(validation.valid) {
+                validation.errors.firstOrNull() ?: validation.message
+            }
+            clientValidation = validation
             val safeName = name.replace(Regex("[^A-Za-z0-9._-]"), "_")
             val path = "${session.userId}/files/${UUID.randomUUID()}_$safeName"
             uploadFile(session, fileUri, path)
@@ -306,6 +323,13 @@ class SupabaseApi(private val context: Context) {
             put("preview_urls", JSONArray(previews))
             put("status", "pending")
             put("coin_price", coinPrice.coerceAtLeast(0))
+            clientValidation?.let { validation ->
+                put("client_validation_status", validation.status)
+                put("client_validation_message", validation.adminSummary)
+                put("client_file_sha256", validation.sha256)
+                put("client_file_size_bytes", validation.sizeBytes)
+                put("client_validation_at", isoAfter(0))
+            }
         }
         post("/rest/v1/themes", JSONArray().put(row).toString(), session)
     }
@@ -883,7 +907,12 @@ class SupabaseApi(private val context: Context) {
                 previewUrls = parseStringList(o.optJSONArray("preview_urls")), driveUrl = o.optString("drive_url"),
                 status = o.optString("status", "pending"),
                 rejectReason = o.optString("reject_reason"), downloads = o.optLong("downloads"), rating = o.optDouble("rating"),
-                createdAt = o.optString("created_at"), coinPrice = o.optInt("coin_price")
+                createdAt = o.optString("created_at"), coinPrice = o.optInt("coin_price"),
+                clientValidationStatus = o.optString("client_validation_status", "unchecked"),
+                clientValidationMessage = o.optString("client_validation_message"),
+                clientFileSha256 = o.optString("client_file_sha256"),
+                clientFileSizeBytes = o.optLong("client_file_size_bytes"),
+                clientValidationAt = o.optString("client_validation_at")
             )
         }
     }

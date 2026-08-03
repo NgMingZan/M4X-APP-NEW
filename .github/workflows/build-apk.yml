@@ -1,4 +1,4 @@
-name: Build M4X Theme v3.1.0 Arcade Treasure Pet APK
+name: Build M4X Theme v3.1.1 Rust Validation APK
 
 on:
   workflow_dispatch:
@@ -8,8 +8,10 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     permissions:
       contents: read
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -24,6 +26,35 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
+          cache-read-only: false
+
+      - name: Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android NDK
+        run: |
+          sdkmanager "ndk;28.1.13356709"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/28.1.13356709" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/28.1.13356709" >> "$GITHUB_ENV"
+
+      - name: Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: >-
+            aarch64-linux-android,
+            armv7-linux-androideabi,
+            x86_64-linux-android
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust/m4x_theme_core
+
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk --locked
+
+      - name: Test Rust core
+        run: cargo test --manifest-path rust/m4x_theme_core/Cargo.toml
 
       - name: Configure Supabase
         shell: bash
@@ -35,15 +66,22 @@ jobs:
           test -n "$SUPABASE_ANON_KEY" || (echo "Missing SUPABASE_ANON_KEY secret" && exit 1)
           printf 'SUPABASE_URL=%s\nSUPABASE_ANON_KEY=%s\n' "$SUPABASE_URL" "$SUPABASE_ANON_KEY" > supabase.properties
 
-      - name: Build debug APK
+      - name: Build debug APK with Rust
         run: gradle --no-daemon :app:assembleDebug --stacktrace
 
+      - name: Verify native libraries
+        run: |
+          test -f app/src/main/jniLibs/arm64-v8a/libm4x_theme_core.so
+          test -f app/src/main/jniLibs/armeabi-v7a/libm4x_theme_core.so
+          test -f app/src/main/jniLibs/x86_64/libm4x_theme_core.so
+
       - name: Prepare APK
-        run: cp app/build/outputs/apk/debug/app-debug.apk M4X-Theme-v3.1.0.apk
+        run: cp app/build/outputs/apk/debug/app-debug.apk M4X-Theme-v3.1.1-Rust.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: M4X-Theme-v3.1.0-Arcade-Treasure-Pet-APK
-          path: M4X-Theme-v3.1.0.apk
+          name: M4X-Theme-v3.1.1-Rust-Validation-APK
+          path: M4X-Theme-v3.1.1-Rust.apk
           retention-days: 14
+          if-no-files-found: error

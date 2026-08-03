@@ -880,6 +880,40 @@ private fun ReviewCard(
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(t.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
                 Text("${t.status.uppercase()} • ${t.coinPrice} M4X COIN")
+
+                val validationColor = when (t.clientValidationStatus) {
+                    "passed" -> MaterialTheme.colorScheme.primary
+                    "warning" -> MaterialTheme.colorScheme.tertiary
+                    "failed" -> MaterialTheme.colorScheme.error
+                    else -> MaterialTheme.colorScheme.onSurfaceVariant
+                }
+                val validationLabel = when (t.clientValidationStatus) {
+                    "passed" -> "Đã qua kiểm tra Rust trên thiết bị"
+                    "warning" -> "Rust phát hiện cảnh báo"
+                    "failed" -> "Rust từ chối file"
+                    else -> "Chưa kiểm tra Rust (có thể là link Drive)"
+                }
+                Text(
+                    validationLabel,
+                    color = validationColor,
+                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.labelLarge
+                )
+                if (t.clientValidationMessage.isNotBlank()) {
+                    Text(
+                        t.clientValidationMessage,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+                if (t.clientFileSizeBytes > 0L) {
+                    val sizeMb = t.clientFileSizeBytes.toDouble() / 1024.0 / 1024.0
+                    Text(
+                        "Dung lượng: ${java.lang.String.format(java.util.Locale.US, "%.2f", sizeMb)} MB" +
+                            if (t.clientFileSha256.isNotBlank()) " • SHA-256: ${t.clientFileSha256.take(12)}…" else "",
+                        style = MaterialTheme.typography.labelSmall
+                    )
+                }
+
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(onClick = onApprove, modifier = Modifier.weight(1f)) { Text("Duyệt") }
                     OutlinedButton(onClick = onReject, modifier = Modifier.weight(1f)) { Text("Từ chối") }
