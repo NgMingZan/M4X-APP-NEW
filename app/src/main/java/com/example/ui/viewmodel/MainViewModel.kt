@@ -20,22 +20,6 @@ enum class HomeTab {
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val _isAuthenticated = MutableStateFlow(false)
-    val isAuthenticated: StateFlow<Boolean> = _isAuthenticated.asStateFlow()
-
-    fun login(email: String, password: String) {
-        if (email.isNotBlank() && password.isNotBlank()) {
-            _isAuthenticated.value = true
-            showSnackbar("Đăng nhập thành công")
-        } else showSnackbar("Vui lòng nhập email và mật khẩu")
-    }
-
-    fun logout() {
-        _isAuthenticated.value = false
-        _currentScreen.value = ScreenRoute.HOME
-    }
-
-
     private val db = M4xDatabase.getInstance(application)
     val repository = M4xRepository(db)
 
