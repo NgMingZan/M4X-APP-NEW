@@ -1,0 +1,49 @@
+name: Build M4X Theme v3.0.9 In-App Update APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Gradle 8.9
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Configure Supabase
+        shell: bash
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          test -n "$SUPABASE_URL" || (echo "Missing SUPABASE_URL secret" && exit 1)
+          test -n "$SUPABASE_ANON_KEY" || (echo "Missing SUPABASE_ANON_KEY secret" && exit 1)
+          printf 'SUPABASE_URL=%s\nSUPABASE_ANON_KEY=%s\n' "$SUPABASE_URL" "$SUPABASE_ANON_KEY" > supabase.properties
+
+      - name: Build debug APK
+        run: gradle --no-daemon :app:assembleDebug --stacktrace
+
+      - name: Prepare APK
+        run: cp app/build/outputs/apk/debug/app-debug.apk M4X-Theme-v3.0.9-update.apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: M4X-Theme-v3.0.9-Update-APK
+          path: M4X-Theme-v3.0.9-update.apk
+          retention-days: 14

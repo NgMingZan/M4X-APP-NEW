@@ -1,1 +1,0 @@
-window.M4X_CONFIG = { SUPABASE_URL: "", SUPABASE_ANON_KEY: "", WEB_VERSION: "4.0.0" };
