@@ -415,7 +415,25 @@ class SupabaseApi(private val context: Context) {
             .put("web_movie_enabled", movieEnabled)
             .put("web_adult_enabled", adultEnabled)
         patch("/rest/v1/app_config?id=eq.main", body.toString(), session)
-        remoteConfig(session).getOrThrow()
+        val a = get("/rest/v1/app_config?id=eq.main&select=*", session)
+        if (a.length() == 0) return@io RemoteConfig()
+        val o = a.getJSONObject(0)
+        RemoteConfig(
+            minVersionCode = o.optInt("min_version_code"),
+            latestVersionCode = o.optInt("latest_version_code"),
+            latestVersionName = o.optString("latest_version_name"),
+            updateUrl = o.optString("update_url"),
+            updateMessage = o.optString("update_message"),
+            forceUpdate = o.optBoolean("force_update"),
+            homeBannerTitle = o.optString("home_banner_title", "M4X Theme"),
+            homeBannerSubtitle = o.optString("home_banner_subtitle", "Kho giao diện HyperOS & MIUI"),
+            webFootballUrl = o.optString("web_football_url", "https://xoilacxtl.tv/"),
+            webMovieUrl = o.optString("web_movie_url", "https://cobephim.pro/"),
+            webAdultUrl = o.optString("web_adult_url", "https://vnsextop1.com/"),
+            webFootballEnabled = o.optBoolean("web_football_enabled", true),
+            webMovieEnabled = o.optBoolean("web_movie_enabled", true),
+            webAdultEnabled = o.optBoolean("web_adult_enabled", true)
+        )
     }
 
     private fun auth(path: String, body: JSONObject): Session {
