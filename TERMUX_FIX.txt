@@ -1,26 +1,28 @@
-M4X ARENA v3.3.0 — FIX UNRESOLVED REFERENCE consume
+M4X Arena Online v3.4.0 — FIX REALTIME 401
 
-Lỗi GitHub Actions:
-ArenaGame.kt:98:42 Unresolved reference 'consume'
+Lỗi:
+Expected HTTP 101 response but was '401 Unauthorized'
 
 Nguyên nhân:
-Compose hiện tại không còn cần import:
-androidx.compose.ui.input.pointer.consume
+ArenaOnline.kt gửi Authorization header trong WebSocket handshake.
+Bản sửa chỉ gửi SUPABASE_ANON_KEY trong query parameter và gửi
+session JWT sau bằng phx_join/access_token.
 
-Hàm change.consume() vẫn được giữ nguyên.
-
-Cài patch trong Termux:
+Cài patch:
 
 cd ~/storage/downloads
-unzip -o M4X_ARENA_CONSUME_FIX.zip
+unzip -o M4X_ARENA_REALTIME_401_FIX.zip
 
-cp -a M4X_ARENA_CONSUME_FIX/. \
-~/storage/downloads/M4X-APP-NEW-RUST/
+cp -a M4X_ARENA_REALTIME_401_FIX/. ~/storage/downloads/M4X-APP-NEW-RUST/
 
 cd ~/storage/downloads/M4X-APP-NEW-RUST
-git config --global --add safe.directory "$PWD"
-git add app/src/main/java/com/m4xtheme/app/ArenaGame.kt
-git commit -m "Fix Arena pointer consume import"
+git add app/src/main/java/com/m4xtheme/app/ArenaOnline.kt
+git commit -m "Fix Supabase Realtime WebSocket 401"
 git push origin main
 
 Không cần chạy lại SQL Supabase.
+
+Nếu bản mới vẫn báo 401:
+GitHub → repository → Settings → Secrets and variables → Actions
+Kiểm tra SUPABASE_ANON_KEY phải là anon key hoặc publishable key
+đúng của cùng dự án với SUPABASE_URL.
