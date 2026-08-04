@@ -57,7 +57,14 @@ data class ThemeItem(
     val clientValidationMessage: String = "",
     val clientFileSha256: String = "",
     val clientFileSizeBytes: Long = 0L,
-    val clientValidationAt: String = ""
+    val clientValidationAt: String = "",
+    val clientSafetyScore: Int = 0,
+    val clientSafetyLevel: String = "danger",
+    val clientThemeMetadata: String = "{}",
+    val clientModuleReport: String = "[]",
+    val clientValidationReport: String = "{}",
+    val approvedFileSha256: String = "",
+    val approvedFileSizeBytes: Long = 0L
 )
 
 data class EventItem(val id: String, val title: String, val description: String, val startAt: String, val endAt: String, val active: Boolean)
@@ -329,6 +336,11 @@ class SupabaseApi(private val context: Context) {
                 put("client_file_sha256", validation.sha256)
                 put("client_file_size_bytes", validation.sizeBytes)
                 put("client_validation_at", isoAfter(0))
+                put("client_safety_score", validation.safetyScore)
+                put("client_safety_level", validation.safetyLevel)
+                put("client_theme_metadata", validation.metadata.toJson())
+                put("client_module_report", validation.modulesJson())
+                put("client_validation_report", JSONObject(validation.rawJson))
             }
         }
         post("/rest/v1/themes", JSONArray().put(row).toString(), session)
@@ -912,7 +924,14 @@ class SupabaseApi(private val context: Context) {
                 clientValidationMessage = o.optString("client_validation_message"),
                 clientFileSha256 = o.optString("client_file_sha256"),
                 clientFileSizeBytes = o.optLong("client_file_size_bytes"),
-                clientValidationAt = o.optString("client_validation_at")
+                clientValidationAt = o.optString("client_validation_at"),
+                clientSafetyScore = o.optInt("client_safety_score"),
+                clientSafetyLevel = o.optString("client_safety_level", "danger"),
+                clientThemeMetadata = o.optJSONObject("client_theme_metadata")?.toString() ?: "{}",
+                clientModuleReport = o.optJSONArray("client_module_report")?.toString() ?: "[]",
+                clientValidationReport = o.optJSONObject("client_validation_report")?.toString() ?: "{}",
+                approvedFileSha256 = o.optString("approved_file_sha256"),
+                approvedFileSizeBytes = o.optLong("approved_file_size_bytes")
             )
         }
     }

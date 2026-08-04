@@ -1,0 +1,23 @@
+M4X Theme v3.2.0 — Static Validation Report
+
+[PASS] cargo_working_dir
+[PASS] download_hash_feature
+[PASS] file_provider
+[PASS] gradle_version
+[PASS] jni_hash_match
+[PASS] jni_validate_match
+[PASS] kotlin_balanced
+[PASS] metadata_feature
+[PASS] no_duplicate_imports
+[PASS] required_files
+[PASS] rust_balanced
+[PASS] safety_report_feature
+[PASS] sql_dollar_quotes
+[PASS] sql_reload
+[PASS] theme_model_fields
+[PASS] update_version
+[PASS] workflow_version
+[PASS] xml_valid
+
+Rust/Android build was not executed in this container.
+GitHub Actions performs cargo test, Android NDK build, and APK assembly.

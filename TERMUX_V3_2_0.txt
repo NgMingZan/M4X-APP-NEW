@@ -1,0 +1,38 @@
+M4X THEME v3.2.0 — RUST SECURITY SUITE
+
+1) Giải nén:
+
+cd ~/storage/downloads
+unzip -o M4X_THEME_V3_2_0_RUST_SECURITY_SUITE.zip
+
+2) Chép đè vào repository đã clone:
+
+cp -a M4X_THEME_V3_2_0_RUST_SECURITY_SUITE/M4X_THEME_V3_UNIVERSE/. \
+~/storage/downloads/M4X-APP-NEW-RUST/
+
+3) Đẩy GitHub:
+
+cd ~/storage/downloads/M4X-APP-NEW-RUST
+git config --global --add safe.directory "$PWD"
+git status
+git add .
+git commit -m "Add Rust security suite v3.2.0"
+git push origin main
+
+4) Chạy SQL:
+
+Supabase → SQL Editor → New query
+Mở file:
+SUPABASE_V3_2_0_RUST_SECURITY_SUITE.sql
+Sao chép toàn bộ → Run.
+
+5) Build:
+
+GitHub → M4X-APP-NEW → Actions
+→ Build M4X Theme v3.2.0 Rust Security Suite APK
+
+Artifact:
+M4X-Theme-v3.2.0-Rust-Security-APK
+
+Không cần chạy lại install.py.
+Không dùng git push --force.

@@ -58,14 +58,23 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.FileProvider
 import coil.compose.AsyncImage
+import com.m4xtheme.app.rust.RustThemeValidator
+import com.m4xtheme.app.rust.ThemeValidationResult
 import com.m4xtheme.app.ui.theme.M4XTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
+import okhttp3.OkHttpClient
+import okhttp3.Request
 import org.json.JSONObject
+import java.io.File
+import java.io.FileOutputStream
 import java.net.URL
+import java.util.concurrent.TimeUnit
 
 data class AppUpdateInfo(
     val versionCode: Int,
@@ -139,6 +148,233 @@ private suspend fun downloadAndInstallUpdate(
             )
         }
     }
+}
+
+
+private val themeDownloadHttp: OkHttpClient by lazy {
+    OkHttpClient.Builder()
+        .connectTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(120, TimeUnit.SECONDS)
+        .followRedirects(true)
+        .followSslRedirects(true)
+        .build()
+}
+
+private suspend fun downloadAndVerifyTheme(
+    context: Context,
+    theme: ThemeItem,
+    onProgress: (Int) -> Unit
+): Result<File> = withContext(Dispatchers.IO) {
+    runCatching {
+        require(theme.fileUrl.startsWith("https://")) {
+            "Theme không có đường dẫn tải trực tiếp HTTPS"
+        }
+        val expectedSha256 = theme.approvedFileSha256
+            .ifBlank { theme.clientFileSha256 }
+        val expectedSizeBytes =
+            theme.approvedFileSizeBytes
+                .takeIf { it > 0L }
+                ?: theme.clientFileSizeBytes
+
+        require(
+            expectedSha256.matches(
+                Regex("^[0-9a-fA-F]{64}$")
+            )
+        ) {
+            "Theme chưa có SHA-256 hợp lệ"
+        }
+
+        val downloadDirectory = File(
+            context.getExternalFilesDir(
+                Environment.DIRECTORY_DOWNLOADS
+            ),
+            "M4XThemes"
+        ).apply {
+            if (!exists() && !mkdirs()) {
+                error("Không tạo được thư mục tải theme")
+            }
+        }
+
+        val extension = Uri.parse(theme.fileUrl)
+            .lastPathSegment
+            ?.substringAfterLast('.', "mtz")
+            ?.lowercase()
+            ?.takeIf { it in setOf("mtz", "zip") }
+            ?: "mtz"
+
+        val safeTitle = theme.title
+            .replace(Regex("[^A-Za-z0-9._-]"), "_")
+            .trim('_')
+            .take(48)
+            .ifBlank { "M4X_Theme" }
+
+        val destination = File(
+            downloadDirectory,
+            "${safeTitle}_${expectedSha256.take(8)}.$extension"
+        )
+        val temporary = File(
+            downloadDirectory,
+            "${destination.name}.part"
+        )
+
+        runCatching { temporary.delete() }
+
+        val request = Request.Builder()
+            .url(theme.fileUrl)
+            .header("User-Agent", "M4X-Theme/${BuildConfig.VERSION_NAME}")
+            .get()
+            .build()
+
+        try {
+            themeDownloadHttp.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    error("Tải theme thất bại (${response.code})")
+                }
+
+                val body = response.body
+                    ?: error("Máy chủ không trả dữ liệu theme")
+                val total = body.contentLength()
+                val maximumBytes = 150L * 1024L * 1024L
+
+                if (total > maximumBytes) {
+                    error("File tải xuống vượt giới hạn 150 MB")
+                }
+
+                if (
+                    expectedSizeBytes > 0L &&
+                    total > 0L &&
+                    total != expectedSizeBytes
+                ) {
+                    error(
+                        "Dung lượng file không khớp bản được duyệt"
+                    )
+                }
+
+                body.byteStream().use { input ->
+                    FileOutputStream(temporary).use { output ->
+                        val buffer = ByteArray(64 * 1024)
+                        var downloaded = 0L
+                        var lastProgress = -1
+
+                        while (true) {
+                            val count = input.read(buffer)
+                            if (count < 0) break
+                            if (count == 0) continue
+
+                            downloaded += count
+                            if (downloaded > maximumBytes) {
+                                error("File tải xuống vượt giới hạn 150 MB")
+                            }
+
+                            output.write(buffer, 0, count)
+
+                            val progress = if (total > 0) {
+                                ((downloaded * 100L) / total)
+                                    .toInt()
+                                    .coerceIn(0, 100)
+                            } else {
+                                0
+                            }
+
+                            if (progress != lastProgress) {
+                                lastProgress = progress
+                                withContext(Dispatchers.Main) {
+                                    onProgress(progress)
+                                }
+                            }
+                        }
+
+                        output.fd.sync()
+                    }
+                }
+            }
+
+            val verification =
+                RustThemeValidator.verifyDownloadedFile(
+                    file = temporary,
+                    expectedSha256 = expectedSha256
+                ).getOrThrow()
+
+            if (!verification.valid || !verification.matches) {
+                error(verification.message)
+            }
+
+            if (
+                expectedSizeBytes > 0L &&
+                verification.sizeBytes != expectedSizeBytes
+            ) {
+                error(
+                    "Dung lượng sau tải không khớp bản được duyệt"
+                )
+            }
+
+            if (destination.exists() && !destination.delete()) {
+                error("Không thể thay file theme cũ")
+            }
+            if (!temporary.renameTo(destination)) {
+                temporary.copyTo(destination, overwrite = true)
+                temporary.delete()
+            }
+
+            withContext(Dispatchers.Main) {
+                onProgress(100)
+            }
+
+            destination
+        } catch (error: Throwable) {
+            runCatching { temporary.delete() }
+            throw error
+        }
+    }
+}
+
+private fun openVerifiedTheme(
+    context: Context,
+    file: File
+) {
+    val uri = FileProvider.getUriForFile(
+        context,
+        "${context.packageName}.files",
+        file
+    )
+
+    val mimeTypes = listOf(
+        "application/zip",
+        "application/octet-stream",
+        "*/*"
+    )
+
+    val viewIntent = mimeTypes
+        .map { mime ->
+            Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, mime)
+                addFlags(
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                        Intent.FLAG_ACTIVITY_NEW_TASK
+                )
+            }
+        }
+        .firstOrNull {
+            it.resolveActivity(context.packageManager) != null
+        }
+
+    if (viewIntent != null) {
+        context.startActivity(viewIntent)
+        return
+    }
+
+    val shareIntent = Intent(Intent.ACTION_SEND).apply {
+        type = "application/octet-stream"
+        putExtra(Intent.EXTRA_STREAM, uri)
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+
+    context.startActivity(
+        Intent.createChooser(
+            shareIntent,
+            "Mở theme đã xác minh"
+        ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    )
 }
 
 class MainActivity : ComponentActivity() {
@@ -523,6 +759,7 @@ private fun HomeScreen(api: SupabaseApi, session: Session, config: RemoteConfig,
     var query by remember { mutableStateOf("") }
     var category by remember { mutableStateOf("Tất cả") }
     var events by remember { mutableStateOf<List<EventItem>>(emptyList()) }
+    var downloadingThemeId by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(Unit) {
         api.approvedThemes(session).onSuccess { themes = it }.onFailure { onMessage(it.message ?: "Lỗi tải theme") }
         api.activeEvents(session).onSuccess { events = it }
@@ -560,17 +797,90 @@ private fun HomeScreen(api: SupabaseApi, session: Session, config: RemoteConfig,
         item { SectionTitle("Theme nổi bật", "Mua bằng M4X COIN hoặc tải miễn phí") }
         if (filtered.isEmpty()) item { EmptyState("Chưa có theme", "Theme được duyệt sẽ xuất hiện ở đây") }
         else items(filtered, key = { it.id }) { theme ->
-            ThemeCard(theme) {
+            ThemeCard(
+                theme = theme,
+                downloading = downloadingThemeId == theme.id
+            ) {
                 scope.launch {
                     api.recordThemeView(session, theme.id)
                     if ((profile?.points ?: 0) < theme.coinPrice) {
                         onMessage("Bạn chưa đủ ${theme.coinPrice} M4X COIN")
-                    } else {
-                        api.purchaseTheme(session, theme.id).onSuccess {
-                            val url = theme.fileUrl.ifBlank { theme.driveUrl }
-                            if (url.isNotBlank()) context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-                        }.onFailure { onMessage(it.message ?: "Không thể mua theme") }
+                        return@launch
                     }
+
+                    api.purchaseTheme(session, theme.id)
+                        .onSuccess {
+                            if (theme.fileUrl.isBlank()) {
+                                if (theme.driveUrl.isNotBlank()) {
+                                    context.startActivity(
+                                        Intent(
+                                            Intent.ACTION_VIEW,
+                                            Uri.parse(theme.driveUrl)
+                                        )
+                                    )
+                                    onMessage(
+                                        "Link Drive mở bên ngoài nên chưa thể xác minh SHA-256 tự động"
+                                    )
+                                }
+                                return@onSuccess
+                            }
+
+                            val expectedSha256 =
+                                theme.approvedFileSha256
+                                    .ifBlank {
+                                        theme.clientFileSha256
+                                    }
+                            val canVerify =
+                                expectedSha256.matches(
+                                    Regex("^[0-9a-fA-F]{64}$")
+                                )
+
+                            if (!canVerify) {
+                                onMessage(
+                                    "Theme chưa có SHA-256 hợp lệ; " +
+                                        "đang mở nguồn tải ngoài"
+                                )
+                                context.startActivity(
+                                    Intent(
+                                        Intent.ACTION_VIEW,
+                                        Uri.parse(theme.fileUrl)
+                                    )
+                                )
+                                return@onSuccess
+                            }
+
+                            downloadingThemeId = theme.id
+                            downloadAndVerifyTheme(
+                                context = context,
+                                theme = theme,
+                                onProgress = { }
+                            ).onSuccess { verifiedFile ->
+                                onMessage(
+                                    "Đã tải và xác minh đúng SHA-256 " +
+                                        "của bản được duyệt"
+                                )
+                                runCatching {
+                                    openVerifiedTheme(
+                                        context,
+                                        verifiedFile
+                                    )
+                                }.onFailure {
+                                    onMessage(
+                                        "File đã xác minh và lưu trong " +
+                                            "thư mục M4XThemes"
+                                    )
+                                }
+                            }.onFailure {
+                                onMessage(
+                                    it.message
+                                        ?: "Không thể xác minh file theme"
+                                )
+                            }
+                            downloadingThemeId = null
+                        }
+                        .onFailure {
+                            onMessage(it.message ?: "Không thể mua theme")
+                        }
                 }
             }
         }
@@ -582,7 +892,11 @@ private fun HomeScreen(api: SupabaseApi, session: Session, config: RemoteConfig,
 @Composable private fun EventBanner(event: EventItem) { ElevatedCard(shape = RoundedCornerShape(26.dp)) { Box(Modifier.fillMaxWidth().background(Brush.linearGradient(listOf(Color(0xFFFF4E8A), Color(0xFF6E48FF)))).padding(20.dp)) { Column { Text(event.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black); Text(event.description); Spacer(Modifier.height(8.dp)); AssistChip(onClick = {}, label = { Text("${event.startAt.take(10)} → ${event.endAt.take(10)}") }) } } } }
 
 @Composable
-private fun ThemeCard(theme: ThemeItem, onBuy: () -> Unit) {
+private fun ThemeCard(
+    theme: ThemeItem,
+    downloading: Boolean,
+    onBuy: () -> Unit
+) {
     ElevatedCard(shape = RoundedCornerShape(26.dp), modifier = Modifier.fillMaxWidth()) {
         Column {
             Box(Modifier.fillMaxWidth().height(180.dp).background(MaterialTheme.colorScheme.surfaceVariant)) {
@@ -596,7 +910,20 @@ private fun ThemeCard(theme: ThemeItem, onBuy: () -> Unit) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Default.Star, null, Modifier.size(18.dp), tint = Color(0xFFFFC857)); Text(" ${"%.1f".format(theme.rating)}")
                     Spacer(Modifier.width(16.dp)); Icon(Icons.Default.Download, null, Modifier.size(18.dp)); Text(" ${theme.downloads}")
-                    Spacer(Modifier.weight(1f)); Button(onClick = onBuy, shape = RoundedCornerShape(16.dp)) { Text(if (theme.coinPrice > 0) "Mua" else "Tải") }
+                    Spacer(Modifier.weight(1f))
+                    Button(
+                        onClick = onBuy,
+                        enabled = !downloading,
+                        shape = RoundedCornerShape(16.dp)
+                    ) {
+                        Text(
+                            when {
+                                downloading -> "Đang xác minh…"
+                                theme.coinPrice > 0 -> "Mua"
+                                else -> "Tải"
+                            }
+                        )
+                    }
                 }
             }
         }
@@ -674,20 +1001,366 @@ private fun QuestHub(api: SupabaseApi, session: Session, profile: Profile?, onCo
 }
 
 @Composable
-private fun UploadScreen(api: SupabaseApi, session: Session, onMessage: (String) -> Unit, onDone: () -> Unit) {
-    val scope = rememberCoroutineScope(); val context = LocalContext.current
-    var fileUri by remember { mutableStateOf<Uri?>(null) }; var previewUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
-    var title by remember { mutableStateOf("") }; var description by remember { mutableStateOf("") }; var driveUrl by remember { mutableStateOf("") }; var price by remember { mutableStateOf("0") }; var uploading by remember { mutableStateOf(false) }
-    val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { fileUri = it }
-    val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { previewUris = it.take(5) }
-    LazyColumn(Modifier.fillMaxSize().imePadding(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        item { SectionTitle("Đăng theme mới", "File lớn có thể dùng Google Drive") }
-        item { FormCard("Thông tin theme", Icons.Default.Edit) { OutlinedTextField(title, { title = it }, label = { Text("Tên theme") }, modifier = Modifier.fillMaxWidth()); OutlinedTextField(description, { description = it }, label = { Text("Mô tả") }, minLines = 3, modifier = Modifier.fillMaxWidth()); OutlinedTextField(price, { price = it.filter(Char::isDigit) }, label = { Text("Giá M4X COIN") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth()) } }
-        item { FormCard("Ảnh xem trước", Icons.Default.PhotoLibrary) { OutlinedButton(onClick = { imagePicker.launch(arrayOf("image/*")) }, modifier = Modifier.fillMaxWidth()) { Text("Chọn tối đa 5 ảnh (${previewUris.size}/5)") }; Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) { previewUris.forEach { AsyncImage(it, null, contentScale = ContentScale.Crop, modifier = Modifier.size(92.dp).clip(RoundedCornerShape(16.dp))) } } } }
-        item { FormCard("Nguồn tải", Icons.Default.CloudUpload) { OutlinedButton(onClick = { filePicker.launch(arrayOf("*/*")) }, modifier = Modifier.fillMaxWidth()) { Text(fileUri?.let { SupabaseApi.fileName(context.contentResolver, it) } ?: "Chọn file .mtz / .zip") }; OutlinedTextField(driveUrl, { driveUrl = it.trim() }, label = { Text("Hoặc link Google Drive") }, modifier = Modifier.fillMaxWidth()) } }
-        item { Button(enabled = !uploading && title.isNotBlank() && (fileUri != null || driveUrl.isNotBlank()), onClick = { uploading = true; scope.launch { api.uploadTheme(session, fileUri, previewUris, driveUrl, title, description, "HyperOS", "", "", "", price.toIntOrNull() ?: 0).onSuccess { onMessage("Đã gửi Admin duyệt"); onDone() }.onFailure { onMessage(it.message ?: "Lỗi upload") }; uploading = false } }, modifier = Modifier.fillMaxWidth().height(58.dp), shape = RoundedCornerShape(18.dp)) { Text(if (uploading) "Đang tải…" else "Gửi duyệt Admin", fontWeight = FontWeight.Bold) } }
+private fun UploadScreen(
+    api: SupabaseApi,
+    session: Session,
+    onMessage: (String) -> Unit,
+    onDone: () -> Unit
+) {
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+
+    var fileUri by remember { mutableStateOf<Uri?>(null) }
+    var previewUris by remember {
+        mutableStateOf<List<Uri>>(emptyList())
+    }
+    var title by remember { mutableStateOf("") }
+    var description by remember { mutableStateOf("") }
+    var driveUrl by remember { mutableStateOf("") }
+    var price by remember { mutableStateOf("0") }
+    var uploading by remember { mutableStateOf(false) }
+    var validating by remember { mutableStateOf(false) }
+    var validationReport by remember {
+        mutableStateOf<ThemeValidationResult?>(null)
+    }
+
+    val filePicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { selectedUri ->
+        fileUri = selectedUri
+        validationReport = null
+
+        if (selectedUri != null) {
+            validating = true
+            scope.launch {
+                val result = withContext(Dispatchers.IO) {
+                    RustThemeValidator.validate(
+                        context = context,
+                        uri = selectedUri,
+                        maxSizeBytes =
+                            RustThemeValidator.DEFAULT_MAX_SIZE_BYTES
+                    )
+                }
+
+                result.onSuccess { report ->
+                    validationReport = report
+
+                    if (
+                        title.isBlank() &&
+                        report.metadata.title.isNotBlank()
+                    ) {
+                        title = report.metadata.title
+                    }
+
+                    if (
+                        description.isBlank() &&
+                        report.metadata.description.isNotBlank()
+                    ) {
+                        description = report.metadata.description
+                    }
+
+                    onMessage(report.message)
+                }.onFailure {
+                    onMessage(
+                        it.message ?: "Không thể kiểm tra file bằng Rust"
+                    )
+                }
+
+                validating = false
+            }
+        }
+    }
+
+    val imagePicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenMultipleDocuments()
+    ) {
+        previewUris = it.take(5)
+    }
+
+    val fileValidationReady =
+        fileUri == null || validationReport?.valid == true
+
+    LazyColumn(
+        Modifier
+            .fillMaxSize()
+            .imePadding(),
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        item {
+            SectionTitle(
+                "Đăng theme mới",
+                "Rust tự đọc metadata, module và chấm điểm an toàn"
+            )
+        }
+
+        item {
+            FormCard("Thông tin theme", Icons.Default.Edit) {
+                OutlinedTextField(
+                    title,
+                    { title = it },
+                    label = { Text("Tên theme") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    description,
+                    { description = it },
+                    label = { Text("Mô tả") },
+                    minLines = 3,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    price,
+                    { price = it.filter(Char::isDigit) },
+                    label = { Text("Giá M4X COIN") },
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Number
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
+
+        item {
+            FormCard("Ảnh xem trước", Icons.Default.PhotoLibrary) {
+                OutlinedButton(
+                    onClick = {
+                        imagePicker.launch(arrayOf("image/*"))
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        "Chọn tối đa 5 ảnh " +
+                            "(${previewUris.size}/5)"
+                    )
+                }
+
+                Row(
+                    Modifier.horizontalScroll(
+                        rememberScrollState()
+                    ),
+                    horizontalArrangement =
+                        Arrangement.spacedBy(8.dp)
+                ) {
+                    previewUris.forEach {
+                        AsyncImage(
+                            it,
+                            null,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier
+                                .size(92.dp)
+                                .clip(RoundedCornerShape(16.dp))
+                        )
+                    }
+                }
+            }
+        }
+
+        item {
+            FormCard("Nguồn tải", Icons.Default.CloudUpload) {
+                OutlinedButton(
+                    enabled = !validating,
+                    onClick = {
+                        filePicker.launch(arrayOf("*/*"))
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    if (validating) {
+                        CircularProgressIndicator(
+                            Modifier.size(18.dp),
+                            strokeWidth = 2.dp
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text("Rust đang kiểm tra…")
+                    } else {
+                        Text(
+                            fileUri?.let {
+                                SupabaseApi.fileName(
+                                    context.contentResolver,
+                                    it
+                                )
+                            } ?: "Chọn file .mtz / .zip"
+                        )
+                    }
+                }
+
+                OutlinedTextField(
+                    driveUrl,
+                    { driveUrl = it.trim() },
+                    label = {
+                        Text("Hoặc link Google Drive")
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
+
+        validationReport?.let { report ->
+            item {
+                FormCard(
+                    "Báo cáo Rust ${report.safetyScore}/100",
+                    Icons.Default.Security
+                ) {
+                    val scoreColor = when {
+                        report.safetyScore >= 90 ->
+                            MaterialTheme.colorScheme.primary
+                        report.safetyScore >= 60 ->
+                            MaterialTheme.colorScheme.tertiary
+                        else ->
+                            MaterialTheme.colorScheme.error
+                    }
+
+                    Text(
+                        report.message,
+                        color = scoreColor,
+                        fontWeight = FontWeight.Bold
+                    )
+
+                    LinearProgressIndicator(
+                        progress = {
+                            report.safetyScore
+                                .coerceIn(0, 100) / 100f
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(9.dp)
+                            .clip(CircleShape)
+                    )
+
+                    val metadata = report.metadata
+                    val author = metadata.author
+                        .ifBlank { metadata.designer }
+
+                    if (metadata.title.isNotBlank()) {
+                        Text(
+                            "Tên đọc được: ${metadata.title}",
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    if (author.isNotBlank()) {
+                        Text("Tác giả: $author")
+                    }
+                    if (metadata.version.isNotBlank()) {
+                        Text("Phiên bản theme: ${metadata.version}")
+                    }
+                    if (metadata.uiVersion.isNotBlank()) {
+                        Text(
+                            "UI/MIUI/HyperOS: " +
+                                metadata.uiVersion
+                        )
+                    }
+
+                    val presentModules = report.modules
+                        .filter { it.present }
+
+                    if (presentModules.isNotEmpty()) {
+                        Text(
+                            "Module nhận diện",
+                            fontWeight = FontWeight.Bold
+                        )
+                        Row(
+                            Modifier.horizontalScroll(
+                                rememberScrollState()
+                            ),
+                            horizontalArrangement =
+                                Arrangement.spacedBy(6.dp)
+                        ) {
+                            presentModules.forEach { module ->
+                                AssistChip(
+                                    onClick = {},
+                                    label = {
+                                        Text(module.label)
+                                    }
+                                )
+                            }
+                        }
+                    }
+
+                    report.warnings.take(4).forEach {
+                        Text(
+                            "⚠ $it",
+                            color =
+                                MaterialTheme.colorScheme.tertiary,
+                            style =
+                                MaterialTheme.typography.bodySmall
+                        )
+                    }
+
+                    report.errors.take(4).forEach {
+                        Text(
+                            "✕ $it",
+                            color =
+                                MaterialTheme.colorScheme.error,
+                            style =
+                                MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
+            }
+        }
+
+        item {
+            Button(
+                enabled =
+                    !uploading &&
+                    !validating &&
+                    title.isNotBlank() &&
+                    (fileUri != null || driveUrl.isNotBlank()) &&
+                    fileValidationReady,
+                onClick = {
+                    uploading = true
+                    scope.launch {
+                        api.uploadTheme(
+                            session = session,
+                            fileUri = fileUri,
+                            previewUris = previewUris,
+                            driveUrl = driveUrl,
+                            title = title,
+                            description = description,
+                            category = "HyperOS",
+                            osVersion =
+                                validationReport
+                                    ?.metadata
+                                    ?.uiVersion
+                                    .orEmpty(),
+                            tags = "",
+                            adminNote = "",
+                            coinPrice =
+                                price.toIntOrNull() ?: 0
+                        ).onSuccess {
+                            onMessage(
+                                "Đã gửi Admin duyệt"
+                            )
+                            onDone()
+                        }.onFailure {
+                            onMessage(
+                                it.message ?: "Lỗi upload"
+                            )
+                        }
+                        uploading = false
+                    }
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(58.dp),
+                shape = RoundedCornerShape(18.dp)
+            ) {
+                Text(
+                    when {
+                        uploading -> "Đang tải…"
+                        validating -> "Đang kiểm tra Rust…"
+                        fileUri != null &&
+                            validationReport?.valid != true ->
+                            "File chưa đạt kiểm tra"
+                        else -> "Gửi duyệt Admin"
+                    },
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
     }
 }
+
 
 @Composable private fun FormCard(title: String, icon: androidx.compose.ui.graphics.vector.ImageVector, content: @Composable ColumnScope.() -> Unit) { ElevatedCard(shape = RoundedCornerShape(24.dp)) { Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) { Row(verticalAlignment = Alignment.CenterVertically) { Icon(icon, null, tint = MaterialTheme.colorScheme.secondary); Spacer(Modifier.width(10.dp)); Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black) }; content() } } }
 
@@ -855,6 +1528,162 @@ private fun WebSettingRow(title: String, value: String, enabled: Boolean, onValu
 @Composable private fun AdminMetric(label: String, value: Int, icon: androidx.compose.ui.graphics.vector.ImageVector, modifier: Modifier) { ElevatedCard(modifier, shape = RoundedCornerShape(20.dp)) { Column(Modifier.padding(14.dp)) { Icon(icon, null, tint = MaterialTheme.colorScheme.secondary); Text(value.toString(), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Black); Text(label, style = MaterialTheme.typography.labelMedium) } } }
 @Composable private fun AdminAction(title: String, icon: androidx.compose.ui.graphics.vector.ImageVector, click: () -> Unit) { ListItem(headlineContent = { Text(title, fontWeight = FontWeight.Bold) }, leadingContent = { Icon(icon, null) }, trailingContent = { Icon(Icons.Default.ChevronRight, null) }, modifier = Modifier.clickable(onClick = click)) }
 @Composable
+private fun AdminSafetyReport(t: ThemeItem) {
+    var expanded by remember(t.id) { mutableStateOf(false) }
+    val metadata = remember(t.clientThemeMetadata) {
+        runCatching { JSONObject(t.clientThemeMetadata) }
+            .getOrElse { JSONObject() }
+    }
+    val modules = remember(t.clientModuleReport) {
+        runCatching { JSONArray(t.clientModuleReport) }
+            .getOrElse { JSONArray() }
+    }
+    val report = remember(t.clientValidationReport) {
+        runCatching { JSONObject(t.clientValidationReport) }
+            .getOrElse { JSONObject() }
+    }
+    val safetyColor = when (t.clientSafetyLevel) {
+        "excellent" -> MaterialTheme.colorScheme.primary
+        "good" -> MaterialTheme.colorScheme.secondary
+        "caution" -> MaterialTheme.colorScheme.tertiary
+        else -> MaterialTheme.colorScheme.error
+    }
+    val safetyLabel = when (t.clientSafetyLevel) {
+        "excellent" -> "Rất an toàn"
+        "good" -> "Tốt"
+        "caution" -> "Cần kiểm tra"
+        else -> "Nguy hiểm"
+    }
+
+    Surface(
+        color = safetyColor.copy(alpha = 0.10f),
+        shape = RoundedCornerShape(18.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Security, null, tint = safetyColor)
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    "Điểm an toàn",
+                    modifier = Modifier.weight(1f),
+                    fontWeight = FontWeight.Black
+                )
+                Text(
+                    if (t.clientSafetyScore > 0) {
+                        "${t.clientSafetyScore}/100 • $safetyLabel"
+                    } else {
+                        "Chưa có báo cáo"
+                    },
+                    color = safetyColor,
+                    fontWeight = FontWeight.Black
+                )
+            }
+            if (t.clientSafetyScore > 0) {
+                LinearProgressIndicator(
+                    progress = {
+                        t.clientSafetyScore.coerceIn(0, 100) / 100f
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(8.dp)
+                        .clip(CircleShape)
+                )
+            }
+
+            val detectedTitle = metadata.optString("title")
+            val creator = metadata.optString("author")
+                .ifBlank { metadata.optString("designer") }
+            val version = metadata.optString("version")
+            val platform = metadata.optString("platform")
+            if (detectedTitle.isNotBlank()) {
+                Text(
+                    "Metadata: $detectedTitle",
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            if (creator.isNotBlank()) Text("Tác giả: $creator")
+            if (version.isNotBlank() || platform.isNotBlank()) {
+                Text(
+                    listOfNotNull(
+                        version.takeIf { it.isNotBlank() }
+                            ?.let { "Phiên bản $it" },
+                        platform.takeIf { it.isNotBlank() }
+                    ).joinToString(" • "),
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+
+            val moduleNames = buildList {
+                repeat(modules.length()) { index ->
+                    val module = modules.optJSONObject(index)
+                    if (module?.optBoolean("present") == true) {
+                        add(module.optString("label"))
+                    }
+                }
+            }.filter { it.isNotBlank() }
+            if (moduleNames.isNotEmpty()) {
+                Text(
+                    "Module: ${moduleNames.joinToString()}",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+
+            TextButton(onClick = { expanded = !expanded }) {
+                Text(
+                    if (expanded) {
+                        "Ẩn báo cáo chi tiết"
+                    } else {
+                        "Xem báo cáo chi tiết"
+                    }
+                )
+            }
+
+            if (expanded) {
+                val findings = report.optJSONArray("findings")
+                val warnings = report.optJSONArray("warnings")
+                val errors = report.optJSONArray("errors")
+                findings?.let { array ->
+                    repeat(array.length()) { index ->
+                        Text(
+                            "✓ ${array.optString(index)}",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
+                warnings?.let { array ->
+                    repeat(array.length()) { index ->
+                        Text(
+                            "⚠ ${array.optString(index)}",
+                            color = MaterialTheme.colorScheme.tertiary,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
+                errors?.let { array ->
+                    repeat(array.length()) { index ->
+                        Text(
+                            "✕ ${array.optString(index)}",
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
+                if (t.approvedFileSha256.isNotBlank()) {
+                    Text(
+                        "SHA đã khóa khi duyệt: ${t.approvedFileSha256}",
+                        style = MaterialTheme.typography.labelSmall
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun ReviewCard(
     t: ThemeItem,
     onApprove: () -> Unit,
@@ -914,8 +1743,15 @@ private fun ReviewCard(
                     )
                 }
 
+                AdminSafetyReport(t)
+
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = onApprove, modifier = Modifier.weight(1f)) { Text("Duyệt") }
+                    Button(
+                        onClick = onApprove,
+                        enabled = t.clientValidationStatus != "failed" &&
+                            (t.clientSafetyScore == 0 || t.clientSafetyScore >= 60),
+                        modifier = Modifier.weight(1f)
+                    ) { Text("Duyệt") }
                     OutlinedButton(onClick = onReject, modifier = Modifier.weight(1f)) { Text("Từ chối") }
                     IconButton(onClick = { editing = true }) { Icon(Icons.Default.Edit, "Sửa") }
                 }

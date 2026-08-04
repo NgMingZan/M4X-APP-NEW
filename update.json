@@ -1,8 +1,8 @@
 {
-  "versionCode": 44,
-  "versionName": "3.1.1",
+  "versionCode": 45,
+  "versionName": "3.2.0",
   "apkUrl": "https://github.com/NgMingZan/M4X-APP-NEW/releases/latest/download/M4X-Theme.apk",
-  "title": "M4X Theme v3.1.1",
-  "message": "Thêm Rust kiểm tra file MTZ/ZIP trước khi tải lên: SHA-256, ZIP bomb, đường dẫn nguy hiểm và file thực thi.",
+  "title": "M4X Theme v3.2.0",
+  "message": "Rust Security Suite: đọc metadata và module theme, chấm điểm an toàn, báo cáo Admin và xác minh SHA-256 sau tải.",
   "forceUpdate": false
 }

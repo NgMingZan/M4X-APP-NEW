@@ -1,0 +1,28 @@
+M4X THEME v3.1.1 — SỬA LỖI CARGO PATH
+
+Cách dễ nhất:
+1. Giải nén file source FIX.
+2. Chép đè toàn bộ vào repo M4X-APP-NEW-RUST.
+3. Commit và push.
+
+Lệnh Termux:
+
+cd ~/storage/downloads
+unzip -o M4X_THEME_V3_1_1_RUST_VALIDATION_FIX_CARGO_PATH.zip
+
+cp -a M4X_THEME_V3_1_1_RUST_VALIDATION_FIX_CARGO_PATH/M4X_THEME_V3_UNIVERSE/. \
+~/storage/downloads/M4X-APP-NEW-RUST/
+
+cd ~/storage/downloads/M4X-APP-NEW-RUST
+git config --global --add safe.directory "$PWD"
+git status
+git add app/build.gradle.kts .github/workflows/build-apk.yml README_V3_1_1_RUST.md
+git commit -m "Fix cargo ndk project path"
+git push origin main
+
+Sau đó:
+GitHub → Actions → Build M4X Theme v3.1.1 Rust Validation APK
+
+Lỗi đã sửa:
+cargo metadata không còn chạy tại root repository.
+Nó chạy trong rust/m4x_theme_core, là nơi có Cargo.toml.
