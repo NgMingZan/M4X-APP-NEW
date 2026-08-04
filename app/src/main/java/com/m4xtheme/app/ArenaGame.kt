@@ -514,6 +514,7 @@ fun ArenaGameScreen(
                     ticket = ticket,
                     profile = profile,
                     inventory = inventory,
+                    onMessage = onMessage,
                     onQuit = {
                         page = ArenaPage.LOBBY
                         scope.launch {
@@ -1297,6 +1298,7 @@ private fun ArenaMatch(
     ticket: ArenaMatchTicket,
     profile: Profile?,
     inventory: List<InventoryItem>,
+    onMessage: (String) -> Unit,
     onQuit: () -> Unit,
     onFinished: (ArenaResult) -> Unit
 ) {
