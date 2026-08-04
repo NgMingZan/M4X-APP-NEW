@@ -1,0 +1,15 @@
+M4X Theme v3.6.2 Fishing API Hotfix
+
+PASS: versionCode = 55
+PASS: versionName = 3.6.2
+PASS: SupabaseApi.kt included in patch
+PASS: 14 Fishing models/RPC methods found
+PASS: workflow artifact renamed for v3.6.2
+PASS: update.json raised to v3.6.2
+PASS: no new SQL required
+
+Root cause from logs:
+- FishingGame.kt and FishingArcadeArt.kt compiled against missing Fishing API types.
+- Patch v3.6.1 did not include app/src/main/java/com/m4xtheme/app/SupabaseApi.kt.
+
+Android build still needs GitHub Actions confirmation.

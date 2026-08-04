@@ -102,6 +102,98 @@ data class MiniGameResult(
     val remaining: Int
 )
 
+data class ArenaBotStartResult(
+    val sessionId: String,
+    val minSeconds: Int,
+    val maxSeconds: Int,
+    val startedAt: String
+)
+
+data class ArenaBotClaimResult(
+    val reward: Int,
+    val balance: Long,
+    val message: String,
+    val rank: Int,
+    val kills: Int,
+    val deaths: Int
+)
+
+
+data class FishingMapInfo(
+    val code: String,
+    val name: String,
+    val subtitle: String,
+    val unlockCost: Int,
+    val difficulty: Int,
+    val unlocked: Boolean,
+    val fishNames: List<String>,
+    val theme: String
+)
+
+data class FishingRodInfo(
+    val code: String,
+    val name: String,
+    val price: Int,
+    val power: Int,
+    val stability: Int,
+    val luck: Int,
+    val owned: Boolean,
+    val equipped: Boolean,
+    val description: String
+)
+
+data class FishingCatchInfo(
+    val id: String,
+    val fishCode: String,
+    val fishName: String,
+    val mapName: String,
+    val rarity: String,
+    val weightGrams: Int,
+    val sellValue: Int,
+    val caughtAt: String
+)
+
+data class FishingGameState(
+    val balance: Long,
+    val maps: List<FishingMapInfo>,
+    val rods: List<FishingRodInfo>,
+    val catches: List<FishingCatchInfo>,
+    val equippedRodCode: String,
+    val inventoryValue: Int
+)
+
+data class FishingCastStart(
+    val castId: String,
+    val mapCode: String,
+    val mapName: String,
+    val fishCode: String,
+    val fishName: String,
+    val rarity: String,
+    val fishDifficulty: Int,
+    val biteDelayMs: Int,
+    val minReelMs: Int,
+    val maxReelMs: Int,
+    val rodPower: Int,
+    val rodStability: Int,
+    val rodLuck: Int
+)
+
+data class FishingCastFinish(
+    val caught: Boolean,
+    val catchId: String,
+    val fishName: String,
+    val rarity: String,
+    val weightGrams: Int,
+    val sellValue: Int,
+    val message: String
+)
+
+data class FishingCoinAction(
+    val balance: Long,
+    val amount: Int,
+    val message: String
+)
+
 data class ArcadeRewardResult(
     val reward: Int,
     val balance: Long,
@@ -554,109 +646,300 @@ class SupabaseApi(private val context: Context) {
         }
     }
 
-    suspend fun joinArenaMatch(
-        session: Session,
-        displayName: String
-    ): Result<ArenaMatchTicket> = io {
-        val body = JSONObject()
-            .put(
-                "p_display_name",
-                displayName.trim().ifBlank { "M4X Hunter" }.take(28)
+    suspend fun startArenaBotMatch(
+        session: Session
+    ): Result<ArenaBotStartResult> = io {
+        val req = base(
+            "${SupabaseConfig.url}/rest/v1/rpc/arena_bot_start",
+            session
+        ).post("{}".toRequestBody(jsonType)).build()
+
+        http.newCall(req).execute().use { res ->
+            val raw = res.body?.string().orEmpty()
+            if (!res.isSuccessful) {
+                throw IOException(
+                    error(raw, "Không thể bắt đầu trận Arena")
+                )
+            }
+            val o = rpcObject(raw)
+            ArenaBotStartResult(
+                sessionId = o.optString("session_id"),
+                minSeconds = o.optInt("min_seconds", 45),
+                maxSeconds = o.optInt("max_seconds", 360),
+                startedAt = o.optString("started_at")
             )
-        val request = base(
-            "${SupabaseConfig.url}/rest/v1/rpc/arena_join_match",
-            session
-        ).post(body.toString().toRequestBody(jsonType)).build()
-
-        http.newCall(request).execute().use { response ->
-            val raw = response.body?.string().orEmpty()
-            if (!response.isSuccessful) {
-                throw IOException(
-                    error(raw, "Không thể tìm trận Arena")
-                )
-            }
-            parseArenaTicket(rpcObject(raw))
         }
     }
 
-    suspend fun arenaMatchStatus(
+    suspend fun claimArenaBotReward(
         session: Session,
-        matchId: String
-    ): Result<ArenaMatchTicket> = io {
-        val body = JSONObject().put("p_match_id", matchId)
-        val request = base(
-            "${SupabaseConfig.url}/rest/v1/rpc/arena_match_status",
-            session
-        ).post(body.toString().toRequestBody(jsonType)).build()
-
-        http.newCall(request).execute().use { response ->
-            val raw = response.body?.string().orEmpty()
-            if (!response.isSuccessful) {
-                throw IOException(
-                    error(raw, "Không đọc được trạng thái trận")
-                )
-            }
-            parseArenaTicket(rpcObject(raw))
-        }
-    }
-
-    suspend fun leaveArenaMatch(
-        session: Session,
-        matchId: String
-    ): Result<Unit> = io {
-        val body = JSONObject().put("p_match_id", matchId)
-        execute(
-            base(
-                "${SupabaseConfig.url}/rest/v1/rpc/arena_leave_match",
-                session
-            ).post(body.toString().toRequestBody(jsonType)).build()
-        )
-    }
-
-    suspend fun finishArenaMatch(
-        session: Session,
-        matchId: String,
+        arenaSessionId: String,
         durationSeconds: Int,
-        results: JSONArray
-    ): Result<Unit> = io {
+        rank: Int,
+        kills: Int,
+        deaths: Int
+    ): Result<ArenaBotClaimResult> = io {
         val body = JSONObject()
-            .put("p_match_id", matchId)
+            .put("p_session_id", arenaSessionId)
             .put("p_duration_seconds", durationSeconds.coerceIn(0, 600))
-            .put("p_results", results)
+            .put("p_rank", rank.coerceIn(1, 10))
+            .put("p_kills", kills.coerceIn(0, 100))
+            .put("p_deaths", deaths.coerceIn(0, 100))
 
-        execute(
-            base(
-                "${SupabaseConfig.url}/rest/v1/rpc/arena_finish_match",
-                session
-            ).post(body.toString().toRequestBody(jsonType)).build()
-        )
-    }
-
-    suspend fun claimArenaReward(
-        session: Session,
-        matchId: String
-    ): Result<ArenaRewardClaim> = io {
-        val body = JSONObject().put("p_match_id", matchId)
-        val request = base(
-            "${SupabaseConfig.url}/rest/v1/rpc/arena_claim_reward",
+        val req = base(
+            "${SupabaseConfig.url}/rest/v1/rpc/arena_bot_claim",
             session
         ).post(body.toString().toRequestBody(jsonType)).build()
 
-        http.newCall(request).execute().use { response ->
-            val raw = response.body?.string().orEmpty()
-            if (!response.isSuccessful) {
+        http.newCall(req).execute().use { res ->
+            val raw = res.body?.string().orEmpty()
+            if (!res.isSuccessful) {
                 throw IOException(
-                    error(raw, "Chưa thể nhận thưởng Arena")
+                    error(raw, "Không thể nhận thưởng Arena")
                 )
             }
-            val json = rpcObject(raw)
-            ArenaRewardClaim(
-                reward = json.optInt("reward"),
-                balance = json.optLong("balance"),
-                message = json.optString(
+            val o = rpcObject(raw)
+            ArenaBotClaimResult(
+                reward = o.optInt("reward"),
+                balance = o.optLong("balance"),
+                message = o.optString(
                     "message",
                     "Đã nhận thưởng Arena"
+                ),
+                rank = o.optInt("rank", rank),
+                kills = o.optInt("kills", kills),
+                deaths = o.optInt("deaths", deaths)
+            )
+        }
+    }
+
+    suspend fun fishingState(
+        session: Session
+    ): Result<FishingGameState> = io {
+        val request = base(
+            "${SupabaseConfig.url}/rest/v1/rpc/fishing_get_state",
+            session
+        ).post("{}".toRequestBody(jsonType)).build()
+
+        http.newCall(request).execute().use { response ->
+            val raw = response.body?.string().orEmpty()
+            if (!response.isSuccessful) {
+                throw IOException(
+                    error(raw, "Không tải được dữ liệu câu cá")
                 )
+            }
+
+            val json = rpcObject(raw)
+            val mapsJson = json.optJSONArray("maps") ?: JSONArray()
+            val rodsJson = json.optJSONArray("rods") ?: JSONArray()
+            val catchesJson = json.optJSONArray("catches") ?: JSONArray()
+
+            val maps = List(mapsJson.length()) { index ->
+                val item = mapsJson.optJSONObject(index) ?: JSONObject()
+                val fishJson = item.optJSONArray("fish") ?: JSONArray()
+                FishingMapInfo(
+                    code = item.optString("code"),
+                    name = item.optString("name"),
+                    subtitle = item.optString("subtitle"),
+                    unlockCost = item.optInt("unlock_cost"),
+                    difficulty = item.optInt("difficulty", 1),
+                    unlocked = item.optBoolean("unlocked"),
+                    fishNames = List(fishJson.length()) { fishIndex ->
+                        fishJson.optString(fishIndex)
+                    }.filter { it.isNotBlank() },
+                    theme = item.optString("theme", "lotus")
+                )
+            }
+
+            val rods = List(rodsJson.length()) { index ->
+                val item = rodsJson.optJSONObject(index) ?: JSONObject()
+                FishingRodInfo(
+                    code = item.optString("code"),
+                    name = item.optString("name"),
+                    price = item.optInt("price"),
+                    power = item.optInt("power", 1),
+                    stability = item.optInt("stability", 1),
+                    luck = item.optInt("luck", 1),
+                    owned = item.optBoolean("owned"),
+                    equipped = item.optBoolean("equipped"),
+                    description = item.optString("description")
+                )
+            }
+
+            val catches = List(catchesJson.length()) { index ->
+                val item = catchesJson.optJSONObject(index) ?: JSONObject()
+                FishingCatchInfo(
+                    id = item.optString("id"),
+                    fishCode = item.optString("fish_code"),
+                    fishName = item.optString("fish_name"),
+                    mapName = item.optString("map_name"),
+                    rarity = item.optString("rarity", "common"),
+                    weightGrams = item.optInt("weight_grams"),
+                    sellValue = item.optInt("sell_value"),
+                    caughtAt = item.optString("caught_at")
+                )
+            }
+
+            FishingGameState(
+                balance = json.optLong("balance"),
+                maps = maps,
+                rods = rods,
+                catches = catches,
+                equippedRodCode = json.optString("equipped_rod"),
+                inventoryValue = json.optInt("inventory_value")
+            )
+        }
+    }
+
+    suspend fun unlockFishingMap(
+        session: Session,
+        mapCode: String
+    ): Result<FishingCoinAction> = fishingCoinAction(
+        session = session,
+        rpc = "fishing_unlock_map",
+        body = JSONObject().put("p_map_code", mapCode),
+        fallback = "Không thể mở khóa khu câu"
+    )
+
+    suspend fun buyFishingRod(
+        session: Session,
+        rodCode: String
+    ): Result<FishingCoinAction> = fishingCoinAction(
+        session = session,
+        rpc = "fishing_buy_rod",
+        body = JSONObject().put("p_rod_code", rodCode),
+        fallback = "Không thể mua cần câu"
+    )
+
+    suspend fun equipFishingRod(
+        session: Session,
+        rodCode: String
+    ): Result<FishingCoinAction> = fishingCoinAction(
+        session = session,
+        rpc = "fishing_equip_rod",
+        body = JSONObject().put("p_rod_code", rodCode),
+        fallback = "Không thể trang bị cần câu"
+    )
+
+    suspend fun startFishingCast(
+        session: Session,
+        mapCode: String
+    ): Result<FishingCastStart> = io {
+        val body = JSONObject().put("p_map_code", mapCode)
+        val request = base(
+            "${SupabaseConfig.url}/rest/v1/rpc/fishing_start_cast",
+            session
+        ).post(body.toString().toRequestBody(jsonType)).build()
+
+        http.newCall(request).execute().use { response ->
+            val raw = response.body?.string().orEmpty()
+            if (!response.isSuccessful) {
+                throw IOException(
+                    error(raw, "Không thể thả câu")
+                )
+            }
+
+            val json = rpcObject(raw)
+            FishingCastStart(
+                castId = json.optString("cast_id"),
+                mapCode = json.optString("map_code"),
+                mapName = json.optString("map_name"),
+                fishCode = json.optString("fish_code"),
+                fishName = json.optString("fish_name"),
+                rarity = json.optString("rarity", "common"),
+                fishDifficulty = json.optInt("fish_difficulty", 1),
+                biteDelayMs = json.optInt("bite_delay_ms", 2500),
+                minReelMs = json.optInt("min_reel_ms", 3500),
+                maxReelMs = json.optInt("max_reel_ms", 22000),
+                rodPower = json.optInt("rod_power", 1),
+                rodStability = json.optInt("rod_stability", 1),
+                rodLuck = json.optInt("rod_luck", 1)
+            )
+        }
+    }
+
+    suspend fun finishFishingCast(
+        session: Session,
+        castId: String,
+        success: Boolean,
+        reelDurationMs: Int,
+        reelQuality: Int
+    ): Result<FishingCastFinish> = io {
+        val body = JSONObject()
+            .put("p_cast_id", castId)
+            .put("p_success", success)
+            .put(
+                "p_reel_duration_ms",
+                reelDurationMs.coerceIn(0, 120_000)
+            )
+            .put("p_reel_quality", reelQuality.coerceIn(0, 100))
+
+        val request = base(
+            "${SupabaseConfig.url}/rest/v1/rpc/fishing_finish_cast",
+            session
+        ).post(body.toString().toRequestBody(jsonType)).build()
+
+        http.newCall(request).execute().use { response ->
+            val raw = response.body?.string().orEmpty()
+            if (!response.isSuccessful) {
+                throw IOException(
+                    error(raw, "Không thể xác nhận lượt câu")
+                )
+            }
+
+            val json = rpcObject(raw)
+            FishingCastFinish(
+                caught = json.optBoolean("caught"),
+                catchId = json.optString("catch_id"),
+                fishName = json.optString("fish_name"),
+                rarity = json.optString("rarity", "common"),
+                weightGrams = json.optInt("weight_grams"),
+                sellValue = json.optInt("sell_value"),
+                message = json.optString("message")
+            )
+        }
+    }
+
+    suspend fun sellFishingCatch(
+        session: Session,
+        catchId: String
+    ): Result<FishingCoinAction> = fishingCoinAction(
+        session = session,
+        rpc = "fishing_sell_catch",
+        body = JSONObject().put("p_catch_id", catchId),
+        fallback = "Không thể bán cá"
+    )
+
+    suspend fun sellAllFishingCatches(
+        session: Session
+    ): Result<FishingCoinAction> = fishingCoinAction(
+        session = session,
+        rpc = "fishing_sell_all",
+        body = JSONObject(),
+        fallback = "Không thể bán cá trong kho"
+    )
+
+    private suspend fun fishingCoinAction(
+        session: Session,
+        rpc: String,
+        body: JSONObject,
+        fallback: String
+    ): Result<FishingCoinAction> = io {
+        val request = base(
+            "${SupabaseConfig.url}/rest/v1/rpc/$rpc",
+            session
+        ).post(body.toString().toRequestBody(jsonType)).build()
+
+        http.newCall(request).execute().use { response ->
+            val raw = response.body?.string().orEmpty()
+            if (!response.isSuccessful) {
+                throw IOException(error(raw, fallback))
+            }
+            val json = rpcObject(raw)
+            FishingCoinAction(
+                balance = json.optLong("balance"),
+                amount = json.optInt("amount"),
+                message = json.optString("message", "Đã cập nhật")
             )
         }
     }
@@ -1011,37 +1294,6 @@ class SupabaseApi(private val context: Context) {
             val a = JSONArray(trimmed)
             if (a.length() == 0) JSONObject() else a.getJSONObject(0)
         } else JSONObject(trimmed)
-    }
-
-    private fun parseArenaTicket(json: JSONObject): ArenaMatchTicket {
-        val playersJson = json.optJSONArray("players") ?: JSONArray()
-        val players = List(playersJson.length()) { index ->
-            val player = playersJson.optJSONObject(index) ?: JSONObject()
-            ArenaOnlinePlayer(
-                userId = player.optString("userId")
-                    .ifBlank { player.optString("user_id") },
-                displayName = player.optString("displayName")
-                    .ifBlank { player.optString("display_name", "M4X Hunter") },
-                slot = if (player.has("slot")) {
-                    player.optInt("slot")
-                } else {
-                    player.optInt("player_slot")
-                }
-            )
-        }.filter { it.userId.isNotBlank() }
-
-        return ArenaMatchTicket(
-            matchId = json.optString("matchId")
-                .ifBlank { json.optString("match_id") },
-            slot = json.optInt("slot"),
-            hostUserId = json.optString("hostUserId")
-                .ifBlank { json.optString("host_user_id") },
-            status = json.optString("status", "waiting"),
-            players = players,
-            waitSeconds = json.optInt("waitSeconds")
-                .takeIf { it > 0 }
-                ?: json.optInt("wait_seconds")
-        )
     }
 
     private fun parseEvents(a: JSONArray) = List(a.length()) { i ->
