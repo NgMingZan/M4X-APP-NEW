@@ -1,0 +1,30 @@
+M4X Theme v3.3.2 — Static Validation
+
+[PASS] balanced_braces
+[PASS] balanced_brackets
+[PASS] balanced_parentheses
+[PASS] compact_fire
+[PASS] compact_joystick
+[PASS] compact_minimap
+[PASS] compact_scoreboard
+[PASS] compact_status
+[PASS] full_width_world
+[PASS] joystick_state_offset
+[PASS] main_hides_shell
+[PASS] no_duplicate_imports
+[PASS] no_old_graphics_layer
+[PASS] non_uniform_obstacles
+[PASS] readme_exists
+[PASS] respawn_countdown
+[PASS] spawn_shield_cancel_on_fire
+[PASS] spawn_shield_damage_block
+[PASS] spawn_shield_duration
+[PASS] spawn_shield_state
+[PASS] spawn_visual
+[PASS] termux_exists
+[PASS] update_3_3_2
+[PASS] version_3_3_2
+[PASS] workflow_3_3_2
+
+Kotlin parser scan found no syntax/expecting errors.
+Android/Compose build must still be confirmed by GitHub Actions.

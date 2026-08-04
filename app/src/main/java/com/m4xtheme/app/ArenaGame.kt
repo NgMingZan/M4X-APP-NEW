@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -90,7 +91,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
@@ -103,6 +103,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
@@ -116,6 +117,7 @@ import kotlin.math.cos
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sin
+import kotlin.math.roundToInt
 import kotlin.math.sqrt
 import kotlin.random.Random
 
@@ -187,6 +189,7 @@ private data class ArenaActor(
     val fireCooldown: Float = 0f,
     val reloadRemaining: Float = 0f,
     val respawnRemaining: Float = 0f,
+    val spawnShieldRemaining: Float = 0f,
     val botMode: BotMode = BotMode.HUNT,
     val botModeTimer: Float = 0f,
     val botSkill: Float = 0.82f,
@@ -863,7 +866,7 @@ private fun ArenaShop(
                     ElevatedCard(shape = RoundedCornerShape(22.dp)) {
                         Column(
                             Modifier.padding(20.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                            verticalArrangement = Arrangement.spacedBy(5.dp)
                         ) {
                             Text(
                                 "Chưa có vật phẩm Arena",
@@ -1062,8 +1065,8 @@ private fun ArenaMatch(
     var announcement by remember { mutableStateOf("1 người thật • 9 bot") }
     var pickupSpawnTimer by remember { mutableFloatStateOf(7f) }
     val density = LocalDensity.current
-    val joystickTravel = with(density) { 43.dp.toPx() }
-    val joystickDeadZone = with(density) { 7.dp.toPx() }
+    val joystickTravel = with(density) { 35.dp.toPx() }
+    val joystickDeadZone = with(density) { 5.5.dp.toPx() }
 
     fun updateJoystick(pointerPosition: Offset, controlSize: IntSize) {
         val center = Offset(
@@ -1104,7 +1107,8 @@ private fun ArenaMatch(
             magazine = loadout.weapon.magazine,
             medkits = loadout.medkits,
             weapon = loadout.weapon,
-            botSkill = 1f
+            botSkill = 1f,
+            spawnShieldRemaining = 1.8f
         )
 
         val botNames = listOf(
@@ -1140,7 +1144,8 @@ private fun ArenaMatch(
                 magazine = botWeapon.magazine,
                 medkits = if (index % 3 == 0) 2 else 1,
                 botSkill = skill.coerceAtMost(0.95f),
-                weapon = botWeapon
+                weapon = botWeapon,
+                spawnShieldRemaining = 1.4f
             )
         }
     }
@@ -1295,15 +1300,15 @@ private fun ArenaMatch(
             Surface(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
-                    .padding(top = 68.dp),
+                    .padding(top = 48.dp),
                 color = Color.Black.copy(alpha = 0.72f),
                 shape = RoundedCornerShape(18.dp)
             ) {
                 Text(
                     announcement,
                     modifier = Modifier.padding(
-                        horizontal = 22.dp,
-                        vertical = 10.dp
+                        horizontal = 14.dp,
+                        vertical = 6.dp
                     ),
                     color = Color.White,
                     fontWeight = FontWeight.Black
@@ -1314,8 +1319,8 @@ private fun ArenaMatch(
         Box(
             Modifier
                 .align(Alignment.BottomStart)
-                .padding(start = 18.dp, bottom = 14.dp)
-                .size(150.dp)
+                .padding(start = 8.dp, bottom = 7.dp)
+                .size(124.dp)
                 .pointerInput(joystickTravel) {
                     detectDragGestures(
                         onDragStart = { start ->
@@ -1379,14 +1384,19 @@ private fun ArenaMatch(
 
             Box(
                 Modifier
-                    .size(62.dp)
-                    .offsetByPixels(joystickKnob)
+                    .size(48.dp)
+                    .offset {
+                        IntOffset(
+                            joystickKnob.x.roundToInt(),
+                            joystickKnob.y.roundToInt()
+                        )
+                    }
                     .background(
                         Brush.radialGradient(
                             listOf(
-                                Color(0xFFF5FBFF),
-                                Color(0xFF80DEEA),
-                                Color(0xFF1565C0)
+                                Color(0xDDF5FBFF),
+                                Color(0xCC80DEEA),
+                                Color(0xBB1565C0)
                             )
                         ),
                         CircleShape
@@ -1413,8 +1423,8 @@ private fun ArenaMatch(
         Box(
             Modifier
                 .align(Alignment.BottomEnd)
-                .padding(end = 18.dp, bottom = 16.dp)
-                .size(100.dp)
+                .padding(end = 9.dp, bottom = 8.dp)
+                .size(82.dp)
                 .background(
                     Brush.radialGradient(
                         listOf(
@@ -1459,7 +1469,7 @@ private fun ArenaMatch(
                     Icons.Default.MyLocation,
                     null,
                     tint = Color.White,
-                    modifier = Modifier.size(31.dp)
+                    modifier = Modifier.size(25.dp)
                 )
                 Text(
                     "BẮN",
@@ -1536,60 +1546,51 @@ private fun ArenaHud(
     onQuit: () -> Unit
 ) {
     val player = actors.firstOrNull { it.id == PLAYER_ID }
-    val topFour = actors.sortedWith(
+    val topThree = actors.sortedWith(
         compareByDescending<ArenaActor> { it.kills }
             .thenBy { it.deaths }
-    ).take(4)
+    ).take(3)
 
     Box(
         Modifier
             .fillMaxSize()
-            .padding(8.dp)
+            .padding(horizontal = 5.dp, vertical = 4.dp)
     ) {
         Surface(
             modifier = Modifier
                 .align(Alignment.TopStart)
-                .width(154.dp),
-            color = Color(0xCC07101D),
-            shape = RoundedCornerShape(14.dp),
+                .width(112.dp),
+            color = Color(0x88030A13),
+            shape = RoundedCornerShape(10.dp),
             border = androidx.compose.foundation.BorderStroke(
                 1.dp,
-                Color(0xFF29B6F6).copy(alpha = 0.4f)
+                Color(0xFF29B6F6).copy(alpha = 0.28f)
             )
         ) {
             Column(
-                Modifier.padding(
-                    horizontal = 10.dp,
-                    vertical = 7.dp
-                ),
-                verticalArrangement = Arrangement.spacedBy(2.dp)
+                Modifier.padding(horizontal = 7.dp, vertical = 5.dp),
+                verticalArrangement = Arrangement.spacedBy(1.dp)
             ) {
-                Text(
-                    "M4X ARENA",
-                    color = Color(0xFF80DEEA),
-                    fontWeight = FontWeight.Black,
-                    style = MaterialTheme.typography.labelSmall
-                )
-                topFour.forEachIndexed { index, actor ->
+                topThree.forEachIndexed { index, actor ->
                     Row(
                         Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Box(
                             Modifier
-                                .size(7.dp)
+                                .size(5.dp)
                                 .background(
                                     arenaActorColor(actor.id),
                                     CircleShape
                                 )
                         )
-                        Spacer(Modifier.width(6.dp))
+                        Spacer(Modifier.width(4.dp))
                         Text(
                             "${index + 1}. ${actor.name}",
                             color = if (actor.isPlayer) {
                                 Color(0xFFFFD740)
                             } else {
-                                Color.White.copy(alpha = 0.9f)
+                                Color.White.copy(alpha = 0.84f)
                             },
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = if (actor.isPlayer) {
@@ -1613,58 +1614,46 @@ private fun ArenaHud(
 
         Surface(
             modifier = Modifier.align(Alignment.TopCenter),
-            color = Color(0xD907101D),
-            shape = RoundedCornerShape(
-                bottomStart = 16.dp,
-                bottomEnd = 16.dp
-            ),
+            color = Color(0x88030A13),
+            shape = RoundedCornerShape(12.dp),
             border = androidx.compose.foundation.BorderStroke(
                 1.dp,
-                Color(0xFF7C4DFF).copy(alpha = 0.48f)
+                Color(0xFF7C4DFF).copy(alpha = 0.3f)
             )
         ) {
-            Column(
-                Modifier.padding(
-                    horizontal = 22.dp,
-                    vertical = 6.dp
+            Text(
+                "%02d:%02d".format(
+                    matchTime.toInt() / 60,
+                    matchTime.toInt() % 60
                 ),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Text(
-                    "%02d:%02d".format(
-                        matchTime.toInt() / 60,
-                        matchTime.toInt() % 60
-                    ),
-                    color = Color.White,
-                    fontWeight = FontWeight.Black,
-                    style = MaterialTheme.typography.titleLarge
-                )
-                Text(
-                    "ĐẦU TRƯỜNG 10 NGƯỜI",
-                    color = Color(0xFFB39DDB),
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.Bold
-                )
-            }
+                modifier = Modifier.padding(
+                    horizontal = 14.dp,
+                    vertical = 4.dp
+                ),
+                color = Color.White,
+                fontWeight = FontWeight.Black,
+                style = MaterialTheme.typography.titleMedium
+            )
         }
 
         Row(
             modifier = Modifier.align(Alignment.TopEnd),
             verticalAlignment = Alignment.Top,
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             ArenaMiniMap(actors = actors)
             FilledIconButton(
                 onClick = onQuit,
-                modifier = Modifier.size(38.dp),
+                modifier = Modifier.size(30.dp),
                 colors = IconButtonDefaults.filledIconButtonColors(
-                    containerColor = Color(0xCC07101D)
+                    containerColor = Color(0x88030A13)
                 )
             ) {
                 Icon(
                     Icons.Default.Tune,
                     "Cài đặt và thoát",
-                    tint = Color.White
+                    tint = Color.White,
+                    modifier = Modifier.size(18.dp)
                 )
             }
         }
@@ -1673,108 +1662,101 @@ private fun ArenaHud(
             Surface(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .width(390.dp)
-                    .padding(bottom = 5.dp),
-                color = Color(0xE607101D),
-                shape = RoundedCornerShape(18.dp),
+                    .width(268.dp)
+                    .padding(bottom = 2.dp),
+                color = Color(0x99030A13),
+                shape = RoundedCornerShape(13.dp),
                 border = androidx.compose.foundation.BorderStroke(
                     1.dp,
-                    Color(0xFF29B6F6).copy(alpha = 0.42f)
+                    Color(0xFF29B6F6).copy(alpha = 0.26f)
                 )
             ) {
-                Column(
-                    Modifier.padding(
-                        horizontal = 14.dp,
-                        vertical = 8.dp
-                    ),
-                    verticalArrangement = Arrangement.spacedBy(5.dp)
+                Row(
+                    Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            Icons.Default.HealthAndSafety,
-                            null,
-                            tint = Color(0xFFFF5252),
-                            modifier = Modifier.size(17.dp)
-                        )
-                        Spacer(Modifier.width(5.dp))
-                        Text(
-                            "${player.health.toInt()}",
-                            color = Color.White,
-                            fontWeight = FontWeight.Black
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        LinearProgressIndicator(
-                            progress = {
-                                (player.health / 100f)
-                                    .coerceIn(0f, 1f)
-                            },
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(6.dp)
-                                .background(
-                                    Color.Black.copy(alpha = 0.4f),
-                                    CircleShape
-                                ),
-                            color = Color(0xFF69F0AE),
-                            trackColor = Color(0xFF263238)
-                        )
-                        Spacer(Modifier.width(12.dp))
-                        Icon(
-                            Icons.Default.Security,
-                            null,
-                            tint = Color(0xFF40C4FF),
-                            modifier = Modifier.size(17.dp)
-                        )
-                        Spacer(Modifier.width(4.dp))
-                        Text(
-                            "${player.armor.toInt()}",
-                            color = Color.White,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        LinearProgressIndicator(
-                            progress = {
-                                (
-                                    player.armor /
-                                        player.maxArmor.coerceAtLeast(1f)
-                                ).coerceIn(0f, 1f)
-                            },
-                            modifier = Modifier
-                                .width(74.dp)
-                                .height(6.dp),
-                            color = Color(0xFF29B6F6),
-                            trackColor = Color(0xFF263238)
-                        )
-                    }
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
+                    Icon(
+                        Icons.Default.HealthAndSafety,
+                        null,
+                        tint = Color(0xFFFF5C6C),
+                        modifier = Modifier.size(15.dp)
+                    )
+                    Spacer(Modifier.width(3.dp))
+                    Text(
+                        "${player.health.toInt()}",
+                        color = Color.White,
+                        fontWeight = FontWeight.Black,
+                        style = MaterialTheme.typography.labelLarge
+                    )
+                    Spacer(Modifier.width(5.dp))
+                    LinearProgressIndicator(
+                        progress = {
+                            (player.health / 100f).coerceIn(0f, 1f)
+                        },
+                        modifier = Modifier
+                            .width(52.dp)
+                            .height(5.dp),
+                        color = Color(0xFF69F0AE),
+                        trackColor = Color.White.copy(alpha = 0.12f)
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Icon(
+                        Icons.Default.Security,
+                        null,
+                        tint = Color(0xFF40C4FF),
+                        modifier = Modifier.size(15.dp)
+                    )
+                    Spacer(Modifier.width(3.dp))
+                    Text(
+                        "${player.armor.toInt()}",
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        style = MaterialTheme.typography.labelLarge
+                    )
+                    Spacer(Modifier.weight(1f))
+                    Column(horizontalAlignment = Alignment.End) {
                         Text(
                             player.weapon.name,
                             color = Color(0xFF80DEEA),
-                            fontWeight = FontWeight.Black
+                            fontWeight = FontWeight.Black,
+                            style = MaterialTheme.typography.labelSmall
                         )
-                        Spacer(Modifier.weight(1f))
                         Text(
-                            "${player.ammo}",
+                            "${player.ammo}/${player.reserveAmmo}",
                             color = if (player.ammo <= 5) {
                                 Color(0xFFFF5252)
                             } else {
                                 Color(0xFFFFD740)
                             },
                             fontWeight = FontWeight.Black,
-                            style = MaterialTheme.typography.titleMedium
-                        )
-                        Text(
-                            " / ${player.reserveAmmo}",
-                            color = Color.White.copy(alpha = 0.65f),
-                            fontWeight = FontWeight.Bold
+                            style = MaterialTheme.typography.labelLarge
                         )
                     }
+                }
+            }
+
+            if (player.respawnRemaining > 0f) {
+                Surface(
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .padding(bottom = 54.dp),
+                    color = Color(0xAA03111E),
+                    shape = RoundedCornerShape(12.dp),
+                    border = androidx.compose.foundation.BorderStroke(
+                        1.dp,
+                        Color(0xFF80DEEA).copy(alpha = 0.58f)
+                    )
+                ) {
+                    Text(
+                        "HỒI SINH ${max(1, kotlin.math.ceil(player.respawnRemaining).toInt())}",
+                        modifier = Modifier.padding(
+                            horizontal = 12.dp,
+                            vertical = 5.dp
+                        ),
+                        color = Color(0xFFB2FFFF),
+                        fontWeight = FontWeight.Black,
+                        style = MaterialTheme.typography.labelLarge
+                    )
                 }
             }
         }
@@ -1786,8 +1768,8 @@ private fun ArenaMiniMap(
     actors: List<ArenaActor>
 ) {
     Surface(
-        color = Color(0xCC07101D),
-        shape = RoundedCornerShape(12.dp),
+        color = Color(0x88030A13),
+        shape = RoundedCornerShape(9.dp),
         border = androidx.compose.foundation.BorderStroke(
             1.dp,
             Color(0xFF29B6F6).copy(alpha = 0.35f)
@@ -1795,9 +1777,9 @@ private fun ArenaMiniMap(
     ) {
         Canvas(
             Modifier
-                .width(112.dp)
-                .height(72.dp)
-                .padding(6.dp)
+                .width(78.dp)
+                .height(48.dp)
+                .padding(4.dp)
         ) {
             drawRoundRect(
                 Color(0xFF0B1827),
@@ -1863,15 +1845,15 @@ private fun BoxScope.ArenaActionButtons(
         Modifier
             .align(Alignment.BottomEnd)
             .padding(
-                end = 124.dp,
-                bottom = 18.dp
+                end = 96.dp,
+                bottom = 9.dp
             ),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+        verticalArrangement = Arrangement.spacedBy(5.dp)
     ) {
         FilledIconButton(
             onClick = onReload,
             enabled = actor?.reloadRemaining == 0f,
-            modifier = Modifier.size(44.dp),
+            modifier = Modifier.size(36.dp),
             colors = IconButtonDefaults.filledIconButtonColors(
                 containerColor = Color(0xD91A2740)
             )
@@ -1885,7 +1867,7 @@ private fun BoxScope.ArenaActionButtons(
         FilledIconButton(
             onClick = onHeal,
             enabled = (actor?.medkits ?: 0) > 0,
-            modifier = Modifier.size(48.dp),
+            modifier = Modifier.size(39.dp),
             colors = IconButtonDefaults.filledIconButtonColors(
                 containerColor = Color(0xD91A2740)
             )
@@ -1895,7 +1877,7 @@ private fun BoxScope.ArenaActionButtons(
                     Icons.Default.HealthAndSafety,
                     "Cứu thương",
                     tint = Color(0xFFFF6E7D),
-                    modifier = Modifier.size(22.dp)
+                    modifier = Modifier.size(18.dp)
                 )
                 Text(
                     "${actor?.medkits ?: 0}",
@@ -2040,7 +2022,11 @@ private fun simulateArenaActors(
     return actors.map { actor ->
         var next = actor.copy(
             fireCooldown = max(0f, actor.fireCooldown - dt),
-            botModeTimer = max(0f, actor.botModeTimer - dt)
+            botModeTimer = max(0f, actor.botModeTimer - dt),
+            spawnShieldRemaining = max(
+                0f,
+                actor.spawnShieldRemaining - dt
+            )
         )
 
         if (next.respawnRemaining > 0f) {
@@ -2060,7 +2046,8 @@ private fun simulateArenaActors(
                     reserveAmmo = next.weapon.reserve,
                     medkits = max(1, next.medkits),
                     respawnRemaining = 0f,
-                    reloadRemaining = 0f
+                    reloadRemaining = 0f,
+                    spawnShieldRemaining = 2.4f
                 )
             }
             return@map next.copy(
@@ -2384,7 +2371,8 @@ private fun fireActor(
 
     return actor.copy(
         ammo = actor.ammo - 1,
-        fireCooldown = actor.weapon.fireInterval
+        fireCooldown = actor.weapon.fireInterval,
+        spawnShieldRemaining = 0f
     )
 }
 
@@ -2427,6 +2415,23 @@ private fun simulateBullets(
             if (hitIndex >= 0) {
                 consumed = true
                 val target = mutableActors[hitIndex]
+
+                if (target.spawnShieldRemaining > 0f) {
+                    repeat(10) {
+                        particles += ArenaParticle(
+                            position = target.position,
+                            velocity = Offset(
+                                Random.nextFloat() * 180f - 90f,
+                                Random.nextFloat() * 180f - 90f
+                            ),
+                            life = 0.22f + Random.nextFloat() * 0.22f,
+                            radius = 3f + Random.nextFloat() * 4f,
+                            color = Color(0xFF80DEEA)
+                        )
+                    }
+                    return@forEach
+                }
+
                 var remainingDamage = bullet.damage
                 var armor = target.armor
                 var health = target.health
@@ -2468,6 +2473,7 @@ private fun simulateBullets(
                     updated = updated.copy(
                         deaths = updated.deaths + 1,
                         respawnRemaining = 3f,
+                        spawnShieldRemaining = 0f,
                         velocity = Offset.Zero
                     )
                     val killerIndex = mutableActors.indexOfFirst {
@@ -2986,16 +2992,15 @@ private fun DrawScope.drawArenaWorld(
     val scaleX = size.width / ARENA_WIDTH
     val scaleY = size.height / ARENA_HEIGHT
     val scale = min(scaleX, scaleY)
-    val offsetX = (size.width - ARENA_WIDTH * scale) / 2f
-    val offsetY = (size.height - ARENA_HEIGHT * scale) / 2f
-    val worldSize = Size(
-        ARENA_WIDTH * scale,
-        ARENA_HEIGHT * scale
-    )
+    val offsetX = 0f
+    val offsetY = 0f
+    val worldSize = size
 
+    // Vị trí dùng hai tỉ lệ riêng để bản đồ phủ kín mọi màn hình 18:9–22:9.
+    // Kích thước nhân vật vẫn dùng tỉ lệ nhỏ hơn để không bị kéo méo.
     fun world(point: Offset): Offset = Offset(
-        offsetX + point.x * scale,
-        offsetY + point.y * scale
+        point.x * scaleX,
+        point.y * scaleY
     )
 
     drawRect(Color(0xFF03050B))
@@ -3046,7 +3051,8 @@ private fun DrawScope.drawArenaWorld(
         row += 1
     }
 
-    val grid = 45f * scale
+    val gridX = 45f * scaleX
+    val gridY = 45f * scaleY
     var x = offsetX
     while (x <= offsetX + worldSize.width) {
         drawLine(
@@ -3055,7 +3061,7 @@ private fun DrawScope.drawArenaWorld(
             Offset(x, offsetY + worldSize.height),
             max(0.7f, scale)
         )
-        x += grid
+        x += gridX
     }
     var y = offsetY
     while (y <= offsetY + worldSize.height) {
@@ -3065,7 +3071,7 @@ private fun DrawScope.drawArenaWorld(
             Offset(offsetX + worldSize.width, y),
             max(0.7f, scale)
         )
-        y += grid
+        y += gridY
     }
 
     // Viền neon của đấu trường.
@@ -3115,7 +3121,9 @@ private fun DrawScope.drawArenaWorld(
         drawSciFiObstacle(
             rect = rect,
             index = index,
-            scale = scale,
+            scaleX = scaleX,
+            scaleY = scaleY,
+            shapeScale = scale,
             world = { point -> world(point) }
         )
     }
@@ -3172,9 +3180,15 @@ private fun DrawScope.drawArenaWorld(
                     1f - actor.respawnRemaining / 3f
                 ).coerceIn(0f, 1f)
                 drawCircle(
-                    Color(0xFF80DEEA).copy(alpha = 0.1f),
-                    radius = 24f * scale,
+                    Color(0xFF80DEEA).copy(alpha = 0.13f),
+                    radius = 29f * scale,
                     center = position
+                )
+                drawCircle(
+                    Color(0xFF80DEEA).copy(alpha = 0.42f),
+                    radius = 22f * scale,
+                    center = position,
+                    style = Stroke(width = max(1.5f, 2.4f * scale))
                 )
                 drawArc(
                     color = Color(0xFF80DEEA),
@@ -3203,13 +3217,16 @@ private fun DrawScope.drawArenaWorld(
 private fun DrawScope.drawSciFiObstacle(
     rect: Rect,
     index: Int,
-    scale: Float,
+    scaleX: Float,
+    scaleY: Float,
+    shapeScale: Float,
     world: (Offset) -> Offset
 ) {
+    val scale = shapeScale
     val topLeft = world(Offset(rect.left, rect.top))
     val obstacleSize = Size(
-        rect.width * scale,
-        rect.height * scale
+        rect.width * scaleX,
+        rect.height * scaleY
     )
     val accent = if (index % 3 == 0) {
         Color(0xFF00B8D4)
@@ -3428,6 +3445,48 @@ private fun DrawScope.drawArenaFighter(
         size = Size(39f * scale, 18f * scale)
     )
 
+    if (actor.spawnShieldRemaining > 0f) {
+        val pulse = 0.5f + 0.5f * sin(
+            actor.spawnShieldRemaining * 10f
+        )
+        val shieldColor = if (actor.isPlayer) {
+            Color(0xFF66FFFF)
+        } else {
+            accent
+        }
+
+        drawLine(
+            shieldColor.copy(alpha = 0.16f + pulse * 0.12f),
+            start = position - Offset(0f, 62f * scale),
+            end = position + Offset(0f, 34f * scale),
+            strokeWidth = max(8f, 15f * scale),
+            cap = StrokeCap.Round
+        )
+        drawCircle(
+            shieldColor.copy(alpha = 0.12f + pulse * 0.09f),
+            radius = (31f + pulse * 5f) * scale,
+            center = position
+        )
+        drawCircle(
+            shieldColor.copy(alpha = 0.9f),
+            radius = (26f + pulse * 3f) * scale,
+            center = position,
+            style = Stroke(width = max(2f, 3.2f * scale))
+        )
+        drawArc(
+            color = Color.White.copy(alpha = 0.72f),
+            startAngle = -90f + actor.spawnShieldRemaining * 110f,
+            sweepAngle = 105f,
+            useCenter = false,
+            topLeft = position - Offset(31f * scale, 31f * scale),
+            size = Size(62f * scale, 62f * scale),
+            style = Stroke(
+                width = max(1.5f, 2.4f * scale),
+                cap = StrokeCap.Round
+            )
+        )
+    }
+
     if (actor.armor > 0f) {
         drawCircle(
             accent.copy(
@@ -3601,8 +3660,16 @@ private fun DrawScope.drawArenaFighter(
 
     if (actor.isPlayer) {
         drawCircle(
-            Color(0xFFFFD740).copy(alpha = 0.8f),
-            radius = 24f * scale,
+            if (actor.spawnShieldRemaining > 0f) {
+                Color(0xFF66FFFF)
+            } else {
+                Color(0xFFFFD740).copy(alpha = 0.82f)
+            },
+            radius = if (actor.spawnShieldRemaining > 0f) {
+                29f * scale
+            } else {
+                24f * scale
+            },
             center = position,
             style = Stroke(width = max(1.5f, 2.5f * scale))
         )
@@ -3807,11 +3874,3 @@ private operator fun Offset.unaryMinus(): Offset {
     return Offset(-x, -y)
 }
 
-private fun Modifier.offsetByPixels(
-    offset: Offset
-): Modifier = this.then(
-    Modifier.graphicsLayer {
-        translationX = offset.x
-        translationY = offset.y
-    }
-)

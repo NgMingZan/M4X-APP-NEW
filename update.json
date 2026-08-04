@@ -1,8 +1,9 @@
 {
-  "versionCode": 47,
-  "versionName": "3.3.1",
+  "versionCode": 48,
+  "versionName": "3.3.2",
   "apkUrl": "https://github.com/NgMingZan/M4X-APP-NEW/releases/latest/download/M4X-Theme.apk",
-  "title": "M4X Theme v3.3.1",
+  "title": "M4X Theme v3.3.2 — Arena HUD & Respawn FX",
   "message": "Làm mới M4X Arena: chơi toàn màn hình, bản đồ sci-fi, nhân vật robot chi tiết, HUD gọn và joystick bám theo ngón tay.",
-  "forceUpdate": false
+  "forceUpdate": false,
+  "notes": "Arena phủ kín màn hình, HUD thu gọn, joystick bám tay và hiệu ứng khiên hồi sinh."
 }

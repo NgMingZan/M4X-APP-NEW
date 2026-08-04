@@ -1,0 +1,15 @@
+M4X THEME v3.3.2 — ARENA HUD & RESPAWN FX
+
+cd ~/storage/downloads
+unzip -o M4X_V3_3_2_ARENA_HUD_RESPAWN_PATCH.zip
+
+cp -a M4X_V3_3_2_ARENA_HUD_RESPAWN_PATCH/. \
+~/storage/downloads/M4X-APP-NEW-RUST/
+
+cd ~/storage/downloads/M4X-APP-NEW-RUST
+git config --global --add safe.directory "$PWD"
+git add .
+git commit -m "Fix Arena HUD and respawn effects v3.3.2"
+git push origin main
+
+Không cần chạy lại SQL Supabase.
