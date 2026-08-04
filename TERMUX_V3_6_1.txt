@@ -1,0 +1,7 @@
+cd ~/storage/downloads
+unzip -o M4X_V3_6_1_FISHING_VISIBLE_HOME_PATCH.zip
+cp -a M4X_V3_6_1_FISHING_VISIBLE_HOME_PATCH/. ~/storage/downloads/M4X-APP-NEW-RUST/
+cd ~/storage/downloads/M4X-APP-NEW-RUST
+git add .
+git commit -m "Show Fishing Arcade on home v3.6.1"
+git push origin main

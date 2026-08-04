@@ -27,6 +27,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -518,6 +519,7 @@ private fun M4XApp() {
     var checkingUpdate by remember { mutableStateOf(false) }
     var updateProgress by remember { mutableIntStateOf(-1) }
     var arenaImmersive by remember { mutableStateOf(false) }
+    var startGamesInFishing by remember { mutableStateOf(false) }
     val snack = remember { SnackbarHostState() }
     val appScope = rememberCoroutineScope()
     fun checkUpdate(showNoUpdate: Boolean = false) {
@@ -619,7 +621,17 @@ private fun M4XApp() {
     ) { padding ->
         Box(Modifier.padding(padding).fillMaxSize()) {
             when (tab) {
-                Tab.HOME -> HomeScreen(api, session!!, config, profile, onMessage = { message = it })
+                Tab.HOME -> HomeScreen(
+                    api = api,
+                    session = session!!,
+                    config = config,
+                    profile = profile,
+                    onOpenFishing = {
+                        startGamesInFishing = true
+                        tab = Tab.GAMES
+                    },
+                    onMessage = { message = it }
+                )
                 Tab.QUEST -> QuestHub(api, session!!, profile, onCoinChanged = { newBalance -> profile = profile?.copy(points = newBalance) }, onMessage = { message = it })
                 Tab.UPLOAD -> UploadScreen(api, session!!, onMessage = { message = it }, onDone = { tab = Tab.PROFILE })
                 Tab.WEB -> M4XWebScreen(config = config, isAdmin = isAdmin, onOpen = { fullscreenWebUrl = it })
@@ -654,7 +666,11 @@ private fun M4XApp() {
                     onBack = { tab = Tab.PROFILE },
                     onCoinChanged = { profile = profile?.copy(points = it) },
                     onMessage = { message = it },
-                    onImmersiveChanged = { arenaImmersive = it }
+                    onImmersiveChanged = { arenaImmersive = it },
+                    startInFishing = startGamesInFishing,
+                    onStartInFishingHandled = {
+                        startGamesInFishing = false
+                    }
                 )
                 Tab.ADMIN -> AdminScreen(api, session!!, profile, config, onConfigChanged = { config = it }, onMessage = { message = it })
             }
@@ -766,7 +782,14 @@ private fun AuthScreen(api: SupabaseApi, onSuccess: (Session) -> Unit, onMessage
 }
 
 @Composable
-private fun HomeScreen(api: SupabaseApi, session: Session, config: RemoteConfig, profile: Profile?, onMessage: (String) -> Unit) {
+private fun HomeScreen(
+    api: SupabaseApi,
+    session: Session,
+    config: RemoteConfig,
+    profile: Profile?,
+    onOpenFishing: () -> Unit,
+    onMessage: (String) -> Unit
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var themes by remember { mutableStateOf<List<ThemeItem>>(emptyList()) }
@@ -792,6 +815,78 @@ private fun HomeScreen(api: SupabaseApi, session: Session, config: RemoteConfig,
                             MetricPill(Icons.Default.Paid, "${profile?.points ?: 0} COIN")
                             MetricPill(Icons.Default.Download, "${themes.sumOf { it.downloads }} lượt tải")
                         }
+                    }
+                }
+            }
+        }
+        item {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(30.dp))
+                    .clickable(onClick = onOpenFishing)
+            ) {
+                FishingArcadeHomeHero(
+                    rod = null,
+                    inventoryCount = 0,
+                    inventoryValue = 0
+                )
+                Surface(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(14.dp),
+                    color = Color.White.copy(alpha = 0.90f),
+                    shape = RoundedCornerShape(18.dp),
+                    border = BorderStroke(
+                        1.dp,
+                        Color(0xFFBCEBFF)
+                    )
+                ) {
+                    Column(
+                        Modifier.padding(
+                            horizontal = 14.dp,
+                            vertical = 10.dp
+                        )
+                    ) {
+                        Text(
+                            "MỚI • FISHING ARCADE V7",
+                            color = Color(0xFF167EB5),
+                            fontWeight = FontWeight.Black,
+                            style = MaterialTheme.typography.labelLarge
+                        )
+                        Text(
+                            "Chơi ngay",
+                            color = Color(0xFF173F65),
+                            fontWeight = FontWeight.Black,
+                            style = MaterialTheme.typography.titleLarge
+                        )
+                    }
+                }
+                Surface(
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(14.dp),
+                    color = Color(0xFFFFC83D),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Row(
+                        Modifier.padding(
+                            horizontal = 14.dp,
+                            vertical = 10.dp
+                        ),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            Icons.Default.PlayArrow,
+                            null,
+                            tint = Color(0xFF744300)
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Text(
+                            "VÀO GAME",
+                            color = Color(0xFF744300),
+                            fontWeight = FontWeight.Black
+                        )
                     }
                 }
             }

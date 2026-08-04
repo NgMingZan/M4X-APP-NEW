@@ -1,0 +1,28 @@
+M4X Theme v3.6.1 Fishing Visible Home — STATIC VALIDATION
+
+PASS  versionCode 54
+PASS  versionName 3.6.1
+PASS  update json 54
+PASS  home visible banner
+PASS  home direct callback
+PASS  direct game start parameter
+PASS  direct opens fishing page
+PASS  game center arcade card
+PASS  main route passes direct flag
+PASS  main route resets direct flag
+PASS  fishing art linked
+PASS  arcade art has chibi
+PASS  workflow v3.6.1
+PASS  no new SQL note
+PASS  MainActivity.kt braces
+PASS  MainActivity.kt parens
+PASS  GameScreens.kt braces
+PASS  GameScreens.kt parens
+PASS  FishingGame.kt braces
+PASS  FishingGame.kt parens
+PASS  FishingArcadeArt.kt braces
+PASS  FishingArcadeArt.kt parens
+
+22/22 checks passed.
+
+Chưa chạy build Android/Compose thật trong container. GitHub Actions phải xác nhận APK.

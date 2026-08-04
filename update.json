@@ -1,9 +1,9 @@
 {
-  "versionCode": 49,
-  "versionName": "3.4.0",
+  "versionCode": 54,
+  "versionName": "3.6.1",
   "apkUrl": "https://github.com/NgMingZan/M4X-APP-NEW/releases/latest/download/M4X-Theme.apk",
-  "title": "M4X Theme v3.4.0 — Arena Online Beta",
-  "message": "M4X Arena hỗ trợ ghép người chơi thật qua Supabase Realtime, tự thêm bot khi thiếu người và cộng thưởng M4X Coin qua máy chủ.",
+  "title": "M4X Theme v3.6.1 — Fishing Arcade Complete",
+  "message": "Hoàn thiện M4X Fishing native: giao diện arcade sáng, map động, cá/boss mới, nhân vật chibi, quay tay thu dây, phản ứng chí mạng, shop cần và độ căng dây cân bằng.",
   "forceUpdate": false,
-  "notes": "Ghép trận 10 vị trí, host mô phỏng chung, đồng bộ input/snapshot qua WebSocket và nhận Coin bằng RPC Supabase."
+  "notes": "Giữ Supabase Fishing v3.5.0. Không cần SQL mới nếu hai file SQL Fishing đã chạy thành công."
 }

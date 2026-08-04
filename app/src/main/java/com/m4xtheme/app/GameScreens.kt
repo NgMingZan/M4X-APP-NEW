@@ -3,6 +3,7 @@ package com.m4xtheme.app
 import android.graphics.Paint
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -38,7 +39,7 @@ import java.util.Random
 import kotlin.math.max
 import kotlin.math.min
 
-private enum class GamesPage { HUB, ARENA, OBSTACLE, MAZE, TREASURE, PET }
+private enum class GamesPage { HUB, ARENA, FISHING, OBSTACLE, MAZE, TREASURE, PET }
 
 @Composable
 fun M4XGamesHubScreen(
@@ -48,9 +49,20 @@ fun M4XGamesHubScreen(
     onBack: () -> Unit,
     onCoinChanged: (Long) -> Unit,
     onMessage: (String) -> Unit,
-    onImmersiveChanged: (Boolean) -> Unit = {}
+    onImmersiveChanged: (Boolean) -> Unit = {},
+    startInFishing: Boolean = false,
+    onStartInFishingHandled: () -> Unit = {}
 ) {
-    var page by remember { mutableStateOf(GamesPage.HUB) }
+    var page by remember {
+        mutableStateOf(
+            if (startInFishing) GamesPage.FISHING
+            else GamesPage.HUB
+        )
+    }
+
+    LaunchedEffect(Unit) {
+        if (startInFishing) onStartInFishingHandled()
+    }
     BackHandler(enabled = page != GamesPage.HUB) {
         onImmersiveChanged(false)
         page = GamesPage.HUB
@@ -71,6 +83,18 @@ fun M4XGamesHubScreen(
             onMessage = onMessage
         )
         GamesPage.ARENA -> ArenaGameScreen(
+            api = api,
+            session = session,
+            profile = profile,
+            onBack = {
+                onImmersiveChanged(false)
+                page = GamesPage.HUB
+            },
+            onCoinChanged = onCoinChanged,
+            onMessage = onMessage,
+            onImmersiveChanged = onImmersiveChanged
+        )
+        GamesPage.FISHING -> FishingGameScreen(
             api = api,
             session = session,
             profile = profile,
@@ -218,6 +242,67 @@ private fun GamesHub(
                 }
             }
         }
+        item {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(30.dp))
+                    .clickable { onOpen(GamesPage.FISHING) }
+            ) {
+                FishingArcadeHomeHero(
+                    rod = null,
+                    inventoryCount = 0,
+                    inventoryValue = 0
+                )
+                Surface(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(14.dp),
+                    color = Color.White.copy(alpha = 0.90f),
+                    shape = RoundedCornerShape(18.dp),
+                    border = BorderStroke(
+                        1.dp,
+                        Color(0xFFBCEBFF)
+                    )
+                ) {
+                    Column(
+                        Modifier.padding(
+                            horizontal = 14.dp,
+                            vertical = 10.dp
+                        )
+                    ) {
+                        Text(
+                            "M4X FISHING ARCADE",
+                            color = Color(0xFF173F65),
+                            fontWeight = FontWeight.Black,
+                            style = MaterialTheme.typography.titleLarge
+                        )
+                        Text(
+                            "Map động • chibi • boss • shop cần",
+                            color = Color(0xFF6687A5)
+                        )
+                    }
+                }
+                Surface(
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(14.dp),
+                    color = Color(0xFFFFC83D),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Text(
+                        "CHƠI NGAY",
+                        modifier = Modifier.padding(
+                            horizontal = 16.dp,
+                            vertical = 11.dp
+                        ),
+                        color = Color(0xFF744300),
+                        fontWeight = FontWeight.Black
+                    )
+                }
+            }
+        }
+
         item {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 GameMenuCard(
