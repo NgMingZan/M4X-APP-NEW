@@ -1,9 +1,9 @@
 {
-  "versionCode": 55,
-  "versionName": "3.6.2",
+  "versionCode": 56,
+  "versionName": "3.6.3",
   "apkUrl": "https://github.com/NgMingZan/M4X-APP-NEW/releases/latest/download/M4X-Theme.apk",
-  "title": "M4X Theme v3.6.2 — Fishing API Hotfix",
-  "message": "Sửa lỗi build Fishing Arcade do patch trước thiếu SupabaseApi.kt chứa model và RPC Fishing.",
+  "title": "M4X Theme v3.6.3 — Arena + Fishing Compile Fix",
+  "message": "Khôi phục Arena Online RPC, giữ Fishing API và sửa lỗi ElevatedCard border của màn Fishing Arcade.",
   "forceUpdate": false,
   "notes": "Giữ Supabase Fishing v3.5.0. Không cần SQL mới nếu hai file SQL Fishing đã chạy thành công."
 }

@@ -646,6 +646,106 @@ class SupabaseApi(private val context: Context) {
         }
     }
 
+
+    // Arena Online RPCs kept together with the newer Fishing RPCs.
+    suspend fun joinArenaMatch(
+        session: Session,
+        displayName: String
+    ): Result<ArenaMatchTicket> = io {
+        val body = JSONObject()
+            .put(
+                "p_display_name",
+                displayName.trim().ifBlank { "M4X Hunter" }.take(28)
+            )
+        val request = base(
+            "${SupabaseConfig.url}/rest/v1/rpc/arena_join_match",
+            session
+        ).post(body.toString().toRequestBody(jsonType)).build()
+
+        http.newCall(request).execute().use { response ->
+            val raw = response.body?.string().orEmpty()
+            if (!response.isSuccessful) {
+                throw IOException(error(raw, "Không thể tìm trận Arena"))
+            }
+            parseArenaTicket(rpcObject(raw))
+        }
+    }
+
+    suspend fun arenaMatchStatus(
+        session: Session,
+        matchId: String
+    ): Result<ArenaMatchTicket> = io {
+        val body = JSONObject().put("p_match_id", matchId)
+        val request = base(
+            "${SupabaseConfig.url}/rest/v1/rpc/arena_match_status",
+            session
+        ).post(body.toString().toRequestBody(jsonType)).build()
+
+        http.newCall(request).execute().use { response ->
+            val raw = response.body?.string().orEmpty()
+            if (!response.isSuccessful) {
+                throw IOException(error(raw, "Không đọc được trạng thái trận"))
+            }
+            parseArenaTicket(rpcObject(raw))
+        }
+    }
+
+    suspend fun leaveArenaMatch(
+        session: Session,
+        matchId: String
+    ): Result<Unit> = io {
+        val body = JSONObject().put("p_match_id", matchId)
+        execute(
+            base(
+                "${SupabaseConfig.url}/rest/v1/rpc/arena_leave_match",
+                session
+            ).post(body.toString().toRequestBody(jsonType)).build()
+        )
+    }
+
+    suspend fun finishArenaMatch(
+        session: Session,
+        matchId: String,
+        durationSeconds: Int,
+        results: JSONArray
+    ): Result<Unit> = io {
+        val body = JSONObject()
+            .put("p_match_id", matchId)
+            .put("p_duration_seconds", durationSeconds.coerceIn(0, 600))
+            .put("p_results", results)
+
+        execute(
+            base(
+                "${SupabaseConfig.url}/rest/v1/rpc/arena_finish_match",
+                session
+            ).post(body.toString().toRequestBody(jsonType)).build()
+        )
+    }
+
+    suspend fun claimArenaReward(
+        session: Session,
+        matchId: String
+    ): Result<ArenaRewardClaim> = io {
+        val body = JSONObject().put("p_match_id", matchId)
+        val request = base(
+            "${SupabaseConfig.url}/rest/v1/rpc/arena_claim_reward",
+            session
+        ).post(body.toString().toRequestBody(jsonType)).build()
+
+        http.newCall(request).execute().use { response ->
+            val raw = response.body?.string().orEmpty()
+            if (!response.isSuccessful) {
+                throw IOException(error(raw, "Chưa thể nhận thưởng Arena"))
+            }
+            val json = rpcObject(raw)
+            ArenaRewardClaim(
+                reward = json.optInt("reward"),
+                balance = json.optLong("balance"),
+                message = json.optString("message", "Đã nhận thưởng Arena")
+            )
+        }
+    }
+
     suspend fun startArenaBotMatch(
         session: Session
     ): Result<ArenaBotStartResult> = io {
@@ -1294,6 +1394,40 @@ class SupabaseApi(private val context: Context) {
             val a = JSONArray(trimmed)
             if (a.length() == 0) JSONObject() else a.getJSONObject(0)
         } else JSONObject(trimmed)
+    }
+
+
+    private fun parseArenaTicket(json: JSONObject): ArenaMatchTicket {
+        val playersJson = json.optJSONArray("players") ?: JSONArray()
+        val players = List(playersJson.length()) { index ->
+            val player = playersJson.optJSONObject(index) ?: JSONObject()
+            ArenaOnlinePlayer(
+                userId = player.optString("userId")
+                    .ifBlank { player.optString("user_id") },
+                displayName = player.optString("displayName")
+                    .ifBlank {
+                        player.optString("display_name", "M4X Hunter")
+                    },
+                slot = if (player.has("slot")) {
+                    player.optInt("slot")
+                } else {
+                    player.optInt("player_slot")
+                }
+            )
+        }.filter { it.userId.isNotBlank() }
+
+        return ArenaMatchTicket(
+            matchId = json.optString("matchId")
+                .ifBlank { json.optString("match_id") },
+            slot = json.optInt("slot"),
+            hostUserId = json.optString("hostUserId")
+                .ifBlank { json.optString("host_user_id") },
+            status = json.optString("status", "waiting"),
+            players = players,
+            waitSeconds = json.optInt("waitSeconds")
+                .takeIf { it > 0 }
+                ?: json.optInt("wait_seconds")
+        )
     }
 
     private fun parseEvents(a: JSONArray) = List(a.length()) { i ->

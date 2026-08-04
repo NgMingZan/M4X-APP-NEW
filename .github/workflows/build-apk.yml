@@ -1,4 +1,4 @@
-name: Build M4X Theme v3.6.2 Fishing API Hotfix APK
+name: Build M4X Theme v3.6.3 Arena Fishing Compile Fix APK
 
 on:
   workflow_dispatch:
@@ -82,12 +82,12 @@ jobs:
           test -f app/src/main/jniLibs/x86_64/libm4x_theme_core.so
 
       - name: Prepare APK
-        run: cp app/build/outputs/apk/debug/app-debug.apk M4X-Theme-v3.6.2-Fishing-API-Hotfix.apk
+        run: cp app/build/outputs/apk/debug/app-debug.apk M4X-Theme-v3.6.3-Arena-Fishing-Compile-Fix.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: M4X-Theme-v3.6.2-Fishing-API-Hotfix-APK
-          path: M4X-Theme-v3.6.2-Fishing-API-Hotfix.apk
+          name: M4X-Theme-v3.6.3-Arena-Fishing-Compile-Fix-APK
+          path: M4X-Theme-v3.6.3-Arena-Fishing-Compile-Fix.apk
           retention-days: 14
           if-no-files-found: error

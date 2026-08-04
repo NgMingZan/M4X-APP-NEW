@@ -1,6 +1,5 @@
 package com.m4xtheme.app
 
-import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -69,28 +68,14 @@ class ArenaRealtimeRoom(
             return
         }
 
-        /*
-         * WebSocket handshake chỉ dùng API key trong query parameter.
-         * JWT người dùng được gửi trong payload phx_join bên dưới.
-         *
-         * Không gửi Authorization header ở bước handshake: token hết hạn
-         * hoặc gateway không chấp nhận header này sẽ trả HTTP 401 trước khi
-         * WebSocket được nâng cấp lên HTTP 101.
-         */
-        val wsUrl = (
-            SupabaseConfig.url
-                .replaceFirst("https://", "wss://")
-                .replaceFirst("http://", "ws://") +
-                "/realtime/v1/websocket"
-            )
-            .toHttpUrl()
-            .newBuilder()
-            .addQueryParameter("apikey", SupabaseConfig.key)
-            .addQueryParameter("vsn", "1.0.0")
-            .build()
+        val wsUrl = SupabaseConfig.url
+            .replaceFirst("https://", "wss://")
+            .replaceFirst("http://", "ws://") +
+            "/realtime/v1/websocket?apikey=${SupabaseConfig.key}&vsn=1.0.0"
 
         val request = Request.Builder()
             .url(wsUrl)
+            .header("Authorization", "Bearer ${session.token}")
             .build()
 
         socket = http.newWebSocket(request, object : WebSocketListener() {
@@ -157,19 +142,7 @@ class ArenaRealtimeRoom(
                 response: Response?
             ) {
                 joined = false
-
-                val status = response?.code
-                val message = when (status) {
-                    401 -> (
-                        "Supabase Realtime từ chối API key (401). " +
-                            "Kiểm tra SUPABASE_ANON_KEY trong GitHub Secrets."
-                    )
-                    403 -> "Dự án chưa cho phép kết nối Realtime (403)."
-                    else -> t.message
-                        ?: "Không kết nối được máy chủ trận đấu"
-                }
-
-                onError(message)
+                onError(t.message ?: "Không kết nối được máy chủ trận đấu")
             }
         })
     }

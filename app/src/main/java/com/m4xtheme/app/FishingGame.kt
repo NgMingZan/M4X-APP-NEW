@@ -633,14 +633,16 @@ private fun FishingMenuButton(
     onClick: () -> Unit
 ) {
     ElevatedCard(
-        modifier = modifier.clickable(onClick = onClick),
+        modifier = modifier
+            .border(
+                1.dp,
+                Color(0xFFCDEBFF),
+                RoundedCornerShape(22.dp)
+            )
+            .clickable(onClick = onClick),
         shape = RoundedCornerShape(22.dp),
         colors = CardDefaults.elevatedCardColors(
             containerColor = Color.White.copy(alpha = 0.92f)
-        ),
-        border = androidx.compose.foundation.BorderStroke(
-            1.dp,
-            Color(0xFFCDEBFF)
         )
     ) {
         Row(
@@ -705,13 +707,14 @@ private fun FishingMapSelect(
         items(state.maps, key = { it.code }) { map ->
             val palette = fishingArcadePalette(map.theme)
             ElevatedCard(
+                modifier = Modifier.border(
+                    1.dp,
+                    Color(0xFFC9EAFF),
+                    RoundedCornerShape(24.dp)
+                ),
                 shape = RoundedCornerShape(24.dp),
                 colors = CardDefaults.elevatedCardColors(
                     containerColor = Color.White.copy(alpha = 0.94f)
-                ),
-                border = androidx.compose.foundation.BorderStroke(
-                    1.dp,
-                    Color(0xFFC9EAFF)
                 )
             ) {
                 Column(
@@ -825,6 +828,12 @@ private fun FishingShop(
 
         items(state.rods, key = { it.code }) { rod ->
             ElevatedCard(
+                modifier = Modifier.border(
+                    1.dp,
+                    if (rod.equipped) Color(0xFF7BDFB4)
+                    else Color(0xFFCDEBFF),
+                    RoundedCornerShape(22.dp)
+                ),
                 shape = RoundedCornerShape(22.dp),
                 colors = CardDefaults.elevatedCardColors(
                     containerColor = if (rod.equipped) {
@@ -832,11 +841,6 @@ private fun FishingShop(
                     } else {
                         Color.White.copy(alpha = 0.94f)
                     }
-                ),
-                border = androidx.compose.foundation.BorderStroke(
-                    1.dp,
-                    if (rod.equipped) Color(0xFF7BDFB4)
-                    else Color(0xFFCDEBFF)
                 )
             ) {
                 Column(

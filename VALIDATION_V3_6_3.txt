@@ -1,0 +1,18 @@
+M4X Theme v3.6.3 validation
+
+PASS: versionCode 56
+PASS: versionName 3.6.3
+PASS: joinArenaMatch
+PASS: arenaMatchStatus
+PASS: leaveArenaMatch
+PASS: finishArenaMatch
+PASS: claimArenaReward
+PASS: parseArenaTicket
+PASS: Fishing API retained
+PASS: ArenaOnline.kt included
+PASS: no ElevatedCard border parameter
+PASS: three Modifier.border fixes
+PASS: balanced Kotlin braces SupabaseApi
+PASS: balanced Kotlin braces FishingGame
+
+Android build requires GitHub Actions confirmation.
