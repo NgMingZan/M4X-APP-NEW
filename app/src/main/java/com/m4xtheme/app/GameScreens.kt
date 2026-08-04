@@ -47,10 +47,18 @@ fun M4XGamesHubScreen(
     profile: Profile?,
     onBack: () -> Unit,
     onCoinChanged: (Long) -> Unit,
-    onMessage: (String) -> Unit
+    onMessage: (String) -> Unit,
+    onImmersiveChanged: (Boolean) -> Unit = {}
 ) {
     var page by remember { mutableStateOf(GamesPage.HUB) }
-    BackHandler(enabled = page != GamesPage.HUB) { page = GamesPage.HUB }
+    BackHandler(enabled = page != GamesPage.HUB) {
+        onImmersiveChanged(false)
+        page = GamesPage.HUB
+    }
+
+    DisposableEffect(Unit) {
+        onDispose { onImmersiveChanged(false) }
+    }
 
     when (page) {
         GamesPage.HUB -> GamesHub(
@@ -62,7 +70,18 @@ fun M4XGamesHubScreen(
             onCoinChanged = onCoinChanged,
             onMessage = onMessage
         )
-        GamesPage.ARENA -> ArenaGameScreen(api, session, profile, { page = GamesPage.HUB }, onCoinChanged, onMessage)
+        GamesPage.ARENA -> ArenaGameScreen(
+            api = api,
+            session = session,
+            profile = profile,
+            onBack = {
+                onImmersiveChanged(false)
+                page = GamesPage.HUB
+            },
+            onCoinChanged = onCoinChanged,
+            onMessage = onMessage,
+            onImmersiveChanged = onImmersiveChanged
+        )
         GamesPage.OBSTACLE -> ObstacleGameScreen(api, session, { page = GamesPage.HUB }, onCoinChanged, onMessage)
         GamesPage.MAZE -> MazeGameScreen(api, session, profile, { page = GamesPage.HUB }, onCoinChanged, onMessage)
         GamesPage.TREASURE -> TreasureMapScreen(api, session, { page = GamesPage.HUB }, onCoinChanged, onMessage)

@@ -1,0 +1,32 @@
+M4X Theme v3.3.1 — Arena Redesign Static Validation
+
+[PASS] arena_delimiters
+[PASS] arena_page_controls_immersive
+[PASS] bottom_bar_hidden
+[PASS] compact_hud
+[PASS] game_hub_callback
+[PASS] games_delimiters
+[PASS] immersive_callback_connected
+[PASS] immersive_parent_state
+[PASS] joystick_absolute_position
+[PASS] joystick_clamped
+[PASS] joystick_dead_zone
+[PASS] joystick_resets
+[PASS] joystick_start_position
+[PASS] main_delimiters
+[PASS] minimap
+[PASS] muzzle_flash
+[PASS] no_bad_consume_import
+[PASS] no_old_joystick_radius
+[PASS] pickup_renderer
+[PASS] robot_character_renderer
+[PASS] scifi_obstacle_renderer
+[PASS] top_bar_hidden
+[PASS] update_json_3_3_1
+[PASS] version_3_3_1
+[PASS] workflow_3_3_1
+[PASS] zero_insets_in_match
+
+Kotlin parser check: no 'expecting', unclosed or unexpected-token errors.
+A full Android/Compose build was not executed in this container.
+GitHub Actions will run Cargo tests, Android NDK build and APK assembly.

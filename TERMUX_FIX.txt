@@ -1,28 +1,26 @@
-M4X THEME v3.1.1 — SỬA LỖI CARGO PATH
+M4X ARENA v3.3.0 — FIX UNRESOLVED REFERENCE consume
 
-Cách dễ nhất:
-1. Giải nén file source FIX.
-2. Chép đè toàn bộ vào repo M4X-APP-NEW-RUST.
-3. Commit và push.
+Lỗi GitHub Actions:
+ArenaGame.kt:98:42 Unresolved reference 'consume'
 
-Lệnh Termux:
+Nguyên nhân:
+Compose hiện tại không còn cần import:
+androidx.compose.ui.input.pointer.consume
+
+Hàm change.consume() vẫn được giữ nguyên.
+
+Cài patch trong Termux:
 
 cd ~/storage/downloads
-unzip -o M4X_THEME_V3_1_1_RUST_VALIDATION_FIX_CARGO_PATH.zip
+unzip -o M4X_ARENA_CONSUME_FIX.zip
 
-cp -a M4X_THEME_V3_1_1_RUST_VALIDATION_FIX_CARGO_PATH/M4X_THEME_V3_UNIVERSE/. \
+cp -a M4X_ARENA_CONSUME_FIX/. \
 ~/storage/downloads/M4X-APP-NEW-RUST/
 
 cd ~/storage/downloads/M4X-APP-NEW-RUST
 git config --global --add safe.directory "$PWD"
-git status
-git add app/build.gradle.kts .github/workflows/build-apk.yml README_V3_1_1_RUST.md
-git commit -m "Fix cargo ndk project path"
+git add app/src/main/java/com/m4xtheme/app/ArenaGame.kt
+git commit -m "Fix Arena pointer consume import"
 git push origin main
 
-Sau đó:
-GitHub → Actions → Build M4X Theme v3.1.1 Rust Validation APK
-
-Lỗi đã sửa:
-cargo metadata không còn chạy tại root repository.
-Nó chạy trong rust/m4x_theme_core, là nơi có Cargo.toml.
+Không cần chạy lại SQL Supabase.

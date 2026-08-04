@@ -42,6 +42,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.HealthAndSafety
 import androidx.compose.material.icons.filled.LocalFireDepartment
 import androidx.compose.material.icons.filled.MilitaryTech
+import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Paid
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
@@ -63,6 +64,7 @@ import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -303,7 +305,8 @@ fun ArenaGameScreen(
     profile: Profile?,
     onBack: () -> Unit,
     onCoinChanged: (Long) -> Unit,
-    onMessage: (String) -> Unit
+    onMessage: (String) -> Unit,
+    onImmersiveChanged: (Boolean) -> Unit = {}
 ) {
     var page by remember { mutableStateOf(ArenaPage.LOBBY) }
     var balance by remember(profile?.points) {
@@ -347,6 +350,7 @@ fun ArenaGameScreen(
     }
 
     LaunchedEffect(page) {
+        onImmersiveChanged(page == ArenaPage.MATCH)
         if (page == ArenaPage.MATCHMAKING) {
             matchmakingSeconds = 0
             repeat(4) {
@@ -355,6 +359,10 @@ fun ArenaGameScreen(
             }
             page = ArenaPage.MATCH
         }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose { onImmersiveChanged(false) }
     }
 
     BackHandler(enabled = page != ArenaPage.LOBBY) {
@@ -1054,7 +1062,24 @@ private fun ArenaMatch(
     var announcement by remember { mutableStateOf("1 người thật • 9 bot") }
     var pickupSpawnTimer by remember { mutableFloatStateOf(7f) }
     val density = LocalDensity.current
-    val joystickRadius = with(density) { 58.dp.toPx() }
+    val joystickTravel = with(density) { 43.dp.toPx() }
+    val joystickDeadZone = with(density) { 7.dp.toPx() }
+
+    fun updateJoystick(pointerPosition: Offset, controlSize: IntSize) {
+        val center = Offset(
+            controlSize.width / 2f,
+            controlSize.height / 2f
+        )
+        val displacement = (pointerPosition - center)
+            .limitLength(joystickTravel)
+        joystickKnob = displacement
+        val distance = displacement.getDistance()
+        moveInput = if (distance <= joystickDeadZone) {
+            Offset.Zero
+        } else {
+            displacement / joystickTravel
+        }
+    }
 
     fun initializeMatch() {
         actors.clear()
@@ -1270,7 +1295,7 @@ private fun ArenaMatch(
             Surface(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
-                    .padding(top = 86.dp),
+                    .padding(top = 68.dp),
                 color = Color.Black.copy(alpha = 0.72f),
                 shape = RoundedCornerShape(18.dp)
             ) {
@@ -1289,22 +1314,12 @@ private fun ArenaMatch(
         Box(
             Modifier
                 .align(Alignment.BottomStart)
-                .padding(20.dp)
-                .size(132.dp)
-                .background(
-                    Color.Black.copy(alpha = 0.34f),
-                    CircleShape
-                )
-                .border(
-                    2.dp,
-                    Color.White.copy(alpha = 0.22f),
-                    CircleShape
-                )
-                .pointerInput(Unit) {
+                .padding(start = 18.dp, bottom = 14.dp)
+                .size(150.dp)
+                .pointerInput(joystickTravel) {
                     detectDragGestures(
-                        onDragStart = {
-                            joystickKnob = Offset.Zero
-                            moveInput = Offset.Zero
+                        onDragStart = { start ->
+                            updateJoystick(start, size)
                         },
                         onDragEnd = {
                             joystickKnob = Offset.Zero
@@ -1314,45 +1329,105 @@ private fun ArenaMatch(
                             joystickKnob = Offset.Zero
                             moveInput = Offset.Zero
                         }
-                    ) { change, dragAmount ->
+                    ) { change, _ ->
                         change.consume()
-                        joystickKnob = (
-                            joystickKnob + dragAmount
-                        ).limitLength(joystickRadius)
-                        moveInput = if (
-                            joystickKnob.getDistance() > 3f
-                        ) {
-                            joystickKnob / joystickRadius
-                        } else {
-                            Offset.Zero
-                        }
+                        updateJoystick(change.position, size)
                     }
                 },
             contentAlignment = Alignment.Center
         ) {
+            Canvas(Modifier.fillMaxSize()) {
+                val center = this.center
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(
+                            Color(0x4429B6F6),
+                            Color(0x33111B2B),
+                            Color(0x22000000)
+                        ),
+                        center = center,
+                        radius = size.minDimension / 2f
+                    ),
+                    radius = size.minDimension / 2f - 3f,
+                    center = center
+                )
+                drawCircle(
+                    color = Color(0xAA52D7FF),
+                    radius = size.minDimension / 2f - 4f,
+                    center = center,
+                    style = Stroke(width = 2.5f)
+                )
+                drawCircle(
+                    color = Color.White.copy(alpha = 0.13f),
+                    radius = size.minDimension * 0.27f,
+                    center = center,
+                    style = Stroke(width = 1.5f)
+                )
+                drawLine(
+                    Color.White.copy(alpha = 0.09f),
+                    Offset(center.x, 13f),
+                    Offset(center.x, size.height - 13f),
+                    1.5f
+                )
+                drawLine(
+                    Color.White.copy(alpha = 0.09f),
+                    Offset(13f, center.y),
+                    Offset(size.width - 13f, center.y),
+                    1.5f
+                )
+            }
+
             Box(
                 Modifier
-                    .size(54.dp)
+                    .size(62.dp)
+                    .offsetByPixels(joystickKnob)
                     .background(
-                        Color.White.copy(alpha = 0.75f),
+                        Brush.radialGradient(
+                            listOf(
+                                Color(0xFFF5FBFF),
+                                Color(0xFF80DEEA),
+                                Color(0xFF1565C0)
+                            )
+                        ),
                         CircleShape
                     )
-                    .offsetByPixels(joystickKnob)
-            )
+                    .border(
+                        2.dp,
+                        Color.White.copy(alpha = 0.86f),
+                        CircleShape
+                    )
+            ) {
+                Canvas(Modifier.fillMaxSize()) {
+                    drawCircle(
+                        Color.White.copy(alpha = 0.26f),
+                        radius = size.minDimension * 0.34f,
+                        center = center.copy(
+                            x = center.x - size.minDimension * 0.08f,
+                            y = center.y - size.minDimension * 0.1f
+                        )
+                    )
+                }
+            }
         }
 
         Box(
             Modifier
                 .align(Alignment.BottomEnd)
-                .padding(22.dp)
-                .size(112.dp)
+                .padding(end = 18.dp, bottom = 16.dp)
+                .size(100.dp)
                 .background(
-                    Color(0xFFCC1E2C).copy(alpha = 0.82f),
+                    Brush.radialGradient(
+                        listOf(
+                            Color(0xFF8E5BFF),
+                            Color(0xFF4A1F8C),
+                            Color(0xDD0A1020)
+                        )
+                    ),
                     CircleShape
                 )
                 .border(
                     3.dp,
-                    Color.White.copy(alpha = 0.52f),
+                    Color(0xFFD7C8FF).copy(alpha = 0.75f),
                     CircleShape
                 )
                 .pointerInput(Unit) {
@@ -1366,17 +1441,31 @@ private fun ArenaMatch(
                 },
             contentAlignment = Alignment.Center
         ) {
+            Canvas(Modifier.fillMaxSize()) {
+                drawCircle(
+                    Color.White.copy(alpha = 0.08f),
+                    radius = size.minDimension * 0.38f,
+                    center = center
+                )
+                drawCircle(
+                    Color(0xFFB388FF).copy(alpha = 0.24f),
+                    radius = size.minDimension * 0.48f,
+                    center = center,
+                    style = Stroke(width = 2f)
+                )
+            }
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Icon(
-                    Icons.Default.LocalFireDepartment,
+                    Icons.Default.MyLocation,
                     null,
                     tint = Color.White,
-                    modifier = Modifier.size(34.dp)
+                    modifier = Modifier.size(31.dp)
                 )
                 Text(
                     "BẮN",
                     color = Color.White,
-                    fontWeight = FontWeight.Black
+                    fontWeight = FontWeight.Black,
+                    style = MaterialTheme.typography.labelLarge
                 )
             }
         }
@@ -1447,149 +1536,318 @@ private fun ArenaHud(
     onQuit: () -> Unit
 ) {
     val player = actors.firstOrNull { it.id == PLAYER_ID }
-    val topFive = actors.sortedWith(
+    val topFour = actors.sortedWith(
         compareByDescending<ArenaActor> { it.kills }
             .thenBy { it.deaths }
-    ).take(5)
+    ).take(4)
 
-    Column(
+    Box(
         Modifier
             .fillMaxSize()
-            .padding(10.dp)
+            .padding(8.dp)
     ) {
-        Row(
-            verticalAlignment = Alignment.Top,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        Surface(
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .width(154.dp),
+            color = Color(0xCC07101D),
+            shape = RoundedCornerShape(14.dp),
+            border = androidx.compose.foundation.BorderStroke(
+                1.dp,
+                Color(0xFF29B6F6).copy(alpha = 0.4f)
+            )
         ) {
-            ElevatedCard(
-                colors = CardDefaults.elevatedCardColors(
-                    containerColor = Color.Black.copy(alpha = 0.62f)
+            Column(
+                Modifier.padding(
+                    horizontal = 10.dp,
+                    vertical = 7.dp
                 ),
-                shape = RoundedCornerShape(16.dp)
+                verticalArrangement = Arrangement.spacedBy(2.dp)
             ) {
-                Column(
-                    Modifier.padding(10.dp),
-                    verticalArrangement = Arrangement.spacedBy(3.dp)
-                ) {
-                    topFive.forEachIndexed { index, actor ->
+                Text(
+                    "M4X ARENA",
+                    color = Color(0xFF80DEEA),
+                    fontWeight = FontWeight.Black,
+                    style = MaterialTheme.typography.labelSmall
+                )
+                topFour.forEachIndexed { index, actor ->
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            Modifier
+                                .size(7.dp)
+                                .background(
+                                    arenaActorColor(actor.id),
+                                    CircleShape
+                                )
+                        )
+                        Spacer(Modifier.width(6.dp))
                         Text(
-                            "${index + 1}. ${actor.name}  ${actor.kills}",
+                            "${index + 1}. ${actor.name}",
                             color = if (actor.isPlayer) {
-                                Color(0xFFFFD54F)
+                                Color(0xFFFFD740)
                             } else {
-                                Color.White
+                                Color.White.copy(alpha = 0.9f)
                             },
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = if (actor.isPlayer) {
                                 FontWeight.Black
                             } else {
                                 FontWeight.Medium
-                            }
+                            },
+                            modifier = Modifier.weight(1f),
+                            maxLines = 1
                         )
-                    }
-                }
-            }
-
-            Spacer(Modifier.weight(1f))
-
-            ElevatedCard(
-                colors = CardDefaults.elevatedCardColors(
-                    containerColor = Color.Black.copy(alpha = 0.62f)
-                ),
-                shape = RoundedCornerShape(16.dp)
-            ) {
-                Row(
-                    Modifier.padding(
-                        horizontal = 12.dp,
-                        vertical = 8.dp
-                    ),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        "%02d:%02d".format(
-                            (matchTime.toInt() / 60),
-                            (matchTime.toInt() % 60)
-                        ),
-                        color = Color.White,
-                        fontWeight = FontWeight.Black
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    IconButton(
-                        onClick = onQuit,
-                        modifier = Modifier.size(28.dp)
-                    ) {
-                        Icon(
-                            Icons.Default.Tune,
-                            "Thoát",
-                            tint = Color.White
+                        Text(
+                            actor.kills.toString(),
+                            color = Color.White,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Black
                         )
                     }
                 }
             }
         }
 
-        Spacer(Modifier.weight(1f))
+        Surface(
+            modifier = Modifier.align(Alignment.TopCenter),
+            color = Color(0xD907101D),
+            shape = RoundedCornerShape(
+                bottomStart = 16.dp,
+                bottomEnd = 16.dp
+            ),
+            border = androidx.compose.foundation.BorderStroke(
+                1.dp,
+                Color(0xFF7C4DFF).copy(alpha = 0.48f)
+            )
+        ) {
+            Column(
+                Modifier.padding(
+                    horizontal = 22.dp,
+                    vertical = 6.dp
+                ),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    "%02d:%02d".format(
+                        matchTime.toInt() / 60,
+                        matchTime.toInt() % 60
+                    ),
+                    color = Color.White,
+                    fontWeight = FontWeight.Black,
+                    style = MaterialTheme.typography.titleLarge
+                )
+                Text(
+                    "ĐẦU TRƯỜNG 10 NGƯỜI",
+                    color = Color(0xFFB39DDB),
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+
+        Row(
+            modifier = Modifier.align(Alignment.TopEnd),
+            verticalAlignment = Alignment.Top,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            ArenaMiniMap(actors = actors)
+            FilledIconButton(
+                onClick = onQuit,
+                modifier = Modifier.size(38.dp),
+                colors = IconButtonDefaults.filledIconButtonColors(
+                    containerColor = Color(0xCC07101D)
+                )
+            ) {
+                Icon(
+                    Icons.Default.Tune,
+                    "Cài đặt và thoát",
+                    tint = Color.White
+                )
+            }
+        }
 
         if (player != null) {
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(
-                        start = 164.dp,
-                        end = 148.dp,
-                        bottom = 8.dp
-                    ),
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.Bottom
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .width(390.dp)
+                    .padding(bottom = 5.dp),
+                color = Color(0xE607101D),
+                shape = RoundedCornerShape(18.dp),
+                border = androidx.compose.foundation.BorderStroke(
+                    1.dp,
+                    Color(0xFF29B6F6).copy(alpha = 0.42f)
+                )
             ) {
-                ElevatedCard(
-                    colors = CardDefaults.elevatedCardColors(
-                        containerColor = Color.Black.copy(alpha = 0.66f)
+                Column(
+                    Modifier.padding(
+                        horizontal = 14.dp,
+                        vertical = 8.dp
                     ),
-                    shape = RoundedCornerShape(18.dp)
+                    verticalArrangement = Arrangement.spacedBy(5.dp)
                 ) {
-                    Column(
-                        Modifier.padding(10.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                Icons.Default.HealthAndSafety,
-                                null,
-                                tint = Color(0xFFFF5252),
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(Modifier.width(5.dp))
-                            Text(
-                                "${player.health.toInt()} HP",
-                                color = Color.White,
-                                fontWeight = FontWeight.Bold,
-                                style = MaterialTheme.typography.labelSmall
-                            )
-                            Spacer(Modifier.width(10.dp))
-                            Icon(
-                                Icons.Default.Security,
-                                null,
-                                tint = Color(0xFF40C4FF),
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(Modifier.width(5.dp))
-                            Text(
-                                player.armor.toInt().toString(),
-                                color = Color.White,
-                                style = MaterialTheme.typography.labelSmall
-                            )
-                        }
-                        Spacer(Modifier.height(5.dp))
+                        Icon(
+                            Icons.Default.HealthAndSafety,
+                            null,
+                            tint = Color(0xFFFF5252),
+                            modifier = Modifier.size(17.dp)
+                        )
+                        Spacer(Modifier.width(5.dp))
                         Text(
-                            "${player.weapon.name}  ${player.ammo}/${player.reserveAmmo}",
-                            color = Color(0xFFFFD54F),
+                            "${player.health.toInt()}",
+                            color = Color.White,
                             fontWeight = FontWeight.Black
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        LinearProgressIndicator(
+                            progress = {
+                                (player.health / 100f)
+                                    .coerceIn(0f, 1f)
+                            },
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(6.dp)
+                                .background(
+                                    Color.Black.copy(alpha = 0.4f),
+                                    CircleShape
+                                ),
+                            color = Color(0xFF69F0AE),
+                            trackColor = Color(0xFF263238)
+                        )
+                        Spacer(Modifier.width(12.dp))
+                        Icon(
+                            Icons.Default.Security,
+                            null,
+                            tint = Color(0xFF40C4FF),
+                            modifier = Modifier.size(17.dp)
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Text(
+                            "${player.armor.toInt()}",
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        LinearProgressIndicator(
+                            progress = {
+                                (
+                                    player.armor /
+                                        player.maxArmor.coerceAtLeast(1f)
+                                ).coerceIn(0f, 1f)
+                            },
+                            modifier = Modifier
+                                .width(74.dp)
+                                .height(6.dp),
+                            color = Color(0xFF29B6F6),
+                            trackColor = Color(0xFF263238)
+                        )
+                    }
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            player.weapon.name,
+                            color = Color(0xFF80DEEA),
+                            fontWeight = FontWeight.Black
+                        )
+                        Spacer(Modifier.weight(1f))
+                        Text(
+                            "${player.ammo}",
+                            color = if (player.ammo <= 5) {
+                                Color(0xFFFF5252)
+                            } else {
+                                Color(0xFFFFD740)
+                            },
+                            fontWeight = FontWeight.Black,
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                        Text(
+                            " / ${player.reserveAmmo}",
+                            color = Color.White.copy(alpha = 0.65f),
+                            fontWeight = FontWeight.Bold
                         )
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ArenaMiniMap(
+    actors: List<ArenaActor>
+) {
+    Surface(
+        color = Color(0xCC07101D),
+        shape = RoundedCornerShape(12.dp),
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            Color(0xFF29B6F6).copy(alpha = 0.35f)
+        )
+    ) {
+        Canvas(
+            Modifier
+                .width(112.dp)
+                .height(72.dp)
+                .padding(6.dp)
+        ) {
+            drawRoundRect(
+                Color(0xFF0B1827),
+                cornerRadius =
+                    androidx.compose.ui.geometry.CornerRadius(
+                        7f,
+                        7f
+                    )
+            )
+            arenaObstacles.forEach { rect ->
+                drawRoundRect(
+                    Color.White.copy(alpha = 0.12f),
+                    topLeft = Offset(
+                        rect.left / ARENA_WIDTH * size.width,
+                        rect.top / ARENA_HEIGHT * size.height
+                    ),
+                    size = Size(
+                        rect.width / ARENA_WIDTH * size.width,
+                        rect.height / ARENA_HEIGHT * size.height
+                    ),
+                    cornerRadius =
+                        androidx.compose.ui.geometry.CornerRadius(
+                            2f,
+                            2f
+                        )
+                )
+            }
+            actors.filter { it.alive }.forEach { actor ->
+                val position = Offset(
+                    actor.position.x / ARENA_WIDTH * size.width,
+                    actor.position.y / ARENA_HEIGHT * size.height
+                )
+                drawCircle(
+                    if (actor.isPlayer) {
+                        Color.White.copy(alpha = 0.35f)
+                    } else {
+                        arenaActorColor(actor.id).copy(alpha = 0.2f)
+                    },
+                    radius = if (actor.isPlayer) 6f else 4.5f,
+                    center = position
+                )
+                drawCircle(
+                    if (actor.isPlayer) {
+                        Color(0xFFFFD740)
+                    } else {
+                        arenaActorColor(actor.id)
+                    },
+                    radius = if (actor.isPlayer) 3.4f else 2.6f,
+                    center = position
+                )
             }
         }
     }
@@ -1605,25 +1863,43 @@ private fun BoxScope.ArenaActionButtons(
         Modifier
             .align(Alignment.BottomEnd)
             .padding(
-                end = 135.dp,
-                bottom = 22.dp
+                end = 124.dp,
+                bottom = 18.dp
             ),
-        verticalArrangement = Arrangement.spacedBy(9.dp)
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         FilledIconButton(
             onClick = onReload,
-            enabled = actor?.reloadRemaining == 0f
+            enabled = actor?.reloadRemaining == 0f,
+            modifier = Modifier.size(44.dp),
+            colors = IconButtonDefaults.filledIconButtonColors(
+                containerColor = Color(0xD91A2740)
+            )
         ) {
-            Icon(Icons.Default.Refresh, "Thay đạn")
+            Icon(
+                Icons.Default.Refresh,
+                "Thay đạn",
+                tint = Color(0xFF80DEEA)
+            )
         }
         FilledIconButton(
             onClick = onHeal,
-            enabled = (actor?.medkits ?: 0) > 0
+            enabled = (actor?.medkits ?: 0) > 0,
+            modifier = Modifier.size(48.dp),
+            colors = IconButtonDefaults.filledIconButtonColors(
+                containerColor = Color(0xD91A2740)
+            )
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Icon(Icons.Default.HealthAndSafety, "Cứu thương")
+                Icon(
+                    Icons.Default.HealthAndSafety,
+                    "Cứu thương",
+                    tint = Color(0xFFFF6E7D),
+                    modifier = Modifier.size(22.dp)
+                )
                 Text(
                     "${actor?.medkits ?: 0}",
+                    color = Color.White,
                     style = MaterialTheme.typography.labelSmall
                 )
             }
@@ -2712,129 +2988,179 @@ private fun DrawScope.drawArenaWorld(
     val scale = min(scaleX, scaleY)
     val offsetX = (size.width - ARENA_WIDTH * scale) / 2f
     val offsetY = (size.height - ARENA_HEIGHT * scale) / 2f
+    val worldSize = Size(
+        ARENA_WIDTH * scale,
+        ARENA_HEIGHT * scale
+    )
 
     fun world(point: Offset): Offset = Offset(
         offsetX + point.x * scale,
         offsetY + point.y * scale
     )
 
+    drawRect(Color(0xFF03050B))
+
     drawRect(
         brush = Brush.linearGradient(
-            listOf(
-                Color(0xFF1B2A22),
-                Color(0xFF2D3327),
-                Color(0xFF151C1A)
+            colors = listOf(
+                Color(0xFF081224),
+                Color(0xFF11162A),
+                Color(0xFF07151D),
+                Color(0xFF060914)
+            ),
+            start = Offset(offsetX, offsetY),
+            end = Offset(
+                offsetX + worldSize.width,
+                offsetY + worldSize.height
             )
         ),
         topLeft = Offset(offsetX, offsetY),
-        size = Size(
-            ARENA_WIDTH * scale,
-            ARENA_HEIGHT * scale
-        )
+        size = worldSize
     )
 
-    val grid = 40f * scale
+    // Các tấm sàn kim loại giúp bản đồ có chiều sâu mà không cần ảnh nền nặng.
+    val panel = 90f * scale
+    var panelY = offsetY
+    var row = 0
+    while (panelY < offsetY + worldSize.height) {
+        var panelX = offsetX
+        var column = 0
+        while (panelX < offsetX + worldSize.width) {
+            val alternate = (row + column) % 2 == 0
+            drawRect(
+                color = if (alternate) {
+                    Color.White.copy(alpha = 0.018f)
+                } else {
+                    Color.Black.copy(alpha = 0.08f)
+                },
+                topLeft = Offset(panelX + 1f, panelY + 1f),
+                size = Size(
+                    min(panel - 2f, offsetX + worldSize.width - panelX),
+                    min(panel - 2f, offsetY + worldSize.height - panelY)
+                )
+            )
+            panelX += panel
+            column += 1
+        }
+        panelY += panel
+        row += 1
+    }
+
+    val grid = 45f * scale
     var x = offsetX
-    while (x <= offsetX + ARENA_WIDTH * scale) {
+    while (x <= offsetX + worldSize.width) {
         drawLine(
-            Color.White.copy(alpha = 0.025f),
+            Color(0xFF4FC3F7).copy(alpha = 0.055f),
             Offset(x, offsetY),
-            Offset(x, offsetY + ARENA_HEIGHT * scale),
-            1f
+            Offset(x, offsetY + worldSize.height),
+            max(0.7f, scale)
         )
         x += grid
     }
     var y = offsetY
-    while (y <= offsetY + ARENA_HEIGHT * scale) {
+    while (y <= offsetY + worldSize.height) {
         drawLine(
-            Color.White.copy(alpha = 0.025f),
+            Color(0xFF7E57C2).copy(alpha = 0.05f),
             Offset(offsetX, y),
-            Offset(offsetX + ARENA_WIDTH * scale, y),
-            1f
+            Offset(offsetX + worldSize.width, y),
+            max(0.7f, scale)
         )
         y += grid
     }
 
-    obstacles.forEachIndexed { index, rect ->
-        val topLeft = world(Offset(rect.left, rect.top))
-        val obstacleSize = Size(
-            rect.width * scale,
-            rect.height * scale
+    // Viền neon của đấu trường.
+    drawRoundRect(
+        color = Color(0xFF00B8D4).copy(alpha = 0.28f),
+        topLeft = Offset(offsetX + 4f, offsetY + 4f),
+        size = Size(
+            max(1f, worldSize.width - 8f),
+            max(1f, worldSize.height - 8f)
+        ),
+        cornerRadius = androidx.compose.ui.geometry.CornerRadius(
+            18f * scale,
+            18f * scale
+        ),
+        style = Stroke(width = max(2f, 3f * scale))
+    )
+
+    spawnPoints.forEachIndexed { index, spawn ->
+        val position = world(spawn)
+        val color = arenaActorColor(index)
+        drawCircle(
+            color.copy(alpha = 0.07f),
+            radius = 28f * scale,
+            center = position
         )
-        drawRoundRect(
-            color = if (index % 2 == 0) {
-                Color(0xFF3B3F39)
-            } else {
-                Color(0xFF4C463A)
-            },
-            topLeft = topLeft,
-            size = obstacleSize,
-            cornerRadius = androidx.compose.ui.geometry.CornerRadius(
-                7f * scale,
-                7f * scale
-            )
+        drawCircle(
+            color.copy(alpha = 0.28f),
+            radius = 20f * scale,
+            center = position,
+            style = Stroke(width = max(1f, 2f * scale))
         )
-        drawRoundRect(
-            color = Color.Black.copy(alpha = 0.35f),
-            topLeft = topLeft + Offset(
-                7f * scale,
-                7f * scale
-            ),
-            size = Size(
-                max(1f, obstacleSize.width - 14f * scale),
-                max(1f, obstacleSize.height - 14f * scale)
-            ),
-            cornerRadius = androidx.compose.ui.geometry.CornerRadius(
-                5f * scale,
-                5f * scale
-            ),
-            style = Stroke(width = 2f * scale)
+        drawLine(
+            color.copy(alpha = 0.18f),
+            position - Offset(12f * scale, 0f),
+            position + Offset(12f * scale, 0f),
+            max(1f, scale)
+        )
+        drawLine(
+            color.copy(alpha = 0.18f),
+            position - Offset(0f, 12f * scale),
+            position + Offset(0f, 12f * scale),
+            max(1f, scale)
         )
     }
 
-    pickups.filter {
-        it.respawnRemaining <= 0f
-    }.forEach { pickup ->
-        val position = world(pickup.position)
-        val color = when (pickup.type) {
-            PickupType.MEDKIT -> Color(0xFFFF5252)
-            PickupType.ARMOR -> Color(0xFF40C4FF)
-            PickupType.AMMO -> Color(0xFFFFD740)
-        }
-        drawCircle(
-            color.copy(alpha = 0.18f),
-            radius = 22f * scale,
-            center = position
-        )
-        drawCircle(
-            color,
-            radius = 10f * scale,
-            center = position
-        )
-        drawCircle(
-            Color.White.copy(alpha = 0.6f),
-            radius = 4f * scale,
-            center = position
+    obstacles.forEachIndexed { index, rect ->
+        drawSciFiObstacle(
+            rect = rect,
+            index = index,
+            scale = scale,
+            world = { point -> world(point) }
         )
     }
+
+    pickups
+        .filter { it.respawnRemaining <= 0f }
+        .forEach { pickup ->
+            drawArenaPickup(
+                pickup = pickup,
+                position = world(pickup.position),
+                scale = scale
+            )
+        }
 
     bullets.forEach { bullet ->
+        val start = world(bullet.previousPosition)
+        val end = world(bullet.position)
         drawLine(
-            color = Color(0xFFFFE082),
-            start = world(bullet.previousPosition),
-            end = world(bullet.position),
-            strokeWidth = 3.3f * scale,
+            color = Color(0xFFFF8A00).copy(alpha = 0.18f),
+            start = start,
+            end = end,
+            strokeWidth = max(5f, 7f * scale),
+            cap = StrokeCap.Round
+        )
+        drawLine(
+            color = Color(0xFFFFF3B0),
+            start = start,
+            end = end,
+            strokeWidth = max(1.5f, 2.6f * scale),
             cap = StrokeCap.Round
         )
     }
 
     particles.forEach { particle ->
+        val alpha = particle.life.coerceIn(0f, 1f)
+        val position = world(particle.position)
         drawCircle(
-            color = particle.color.copy(
-                alpha = particle.life.coerceIn(0f, 1f)
-            ),
-            radius = particle.radius * scale,
-            center = world(particle.position)
+            color = particle.color.copy(alpha = alpha * 0.18f),
+            radius = particle.radius * scale * 2.6f,
+            center = position
+        )
+        drawCircle(
+            color = particle.color.copy(alpha = alpha),
+            radius = max(0.8f, particle.radius * scale),
+            center = position
         )
     }
 
@@ -2842,91 +3168,520 @@ private fun DrawScope.drawArenaWorld(
         if (!actor.alive) {
             if (actor.respawnRemaining > 0f) {
                 val position = world(actor.position)
+                val progress = (
+                    1f - actor.respawnRemaining / 3f
+                ).coerceIn(0f, 1f)
                 drawCircle(
-                    Color.White.copy(alpha = 0.08f),
-                    radius = 18f * scale,
-                    center = position,
-                    style = Stroke(width = 2f * scale)
+                    Color(0xFF80DEEA).copy(alpha = 0.1f),
+                    radius = 24f * scale,
+                    center = position
+                )
+                drawArc(
+                    color = Color(0xFF80DEEA),
+                    startAngle = -90f,
+                    sweepAngle = 360f * progress,
+                    useCenter = false,
+                    topLeft = position - Offset(
+                        21f * scale,
+                        21f * scale
+                    ),
+                    size = Size(42f * scale, 42f * scale),
+                    style = Stroke(width = max(1.5f, 3f * scale))
                 )
             }
             return@forEach
         }
 
-        val position = world(actor.position)
-        val aim = actor.aim.normalizedOrZero()
-        val actorColor = arenaActorColor(actor.id)
-
-        drawCircle(
-            Color.Black.copy(alpha = 0.34f),
-            radius = 17f * scale,
-            center = position + Offset(
-                3f * scale,
-                5f * scale
-            )
-        )
-
-        drawLine(
-            color = Color(0xFF111820),
-            start = position,
-            end = position + aim * 25f * scale,
-            strokeWidth = 8f * scale,
-            cap = StrokeCap.Round
-        )
-
-        drawCircle(
-            actorColor,
-            radius = 14f * scale,
-            center = position
-        )
-
-        drawCircle(
-            if (actor.isPlayer) {
-                Color(0xFFFFD54F)
-            } else {
-                Color.White.copy(alpha = 0.72f)
-            },
-            radius = 16f * scale,
-            center = position,
-            style = Stroke(width = 2f * scale)
-        )
-
-        val barWidth = 48f * scale
-        val barTop = position.y - 30f * scale
-        drawRect(
-            Color.Black.copy(alpha = 0.58f),
-            topLeft = Offset(
-                position.x - barWidth / 2f,
-                barTop
-            ),
-            size = Size(barWidth, 5f * scale)
-        )
-        drawRect(
-            Color(0xFF4CAF50),
-            topLeft = Offset(
-                position.x - barWidth / 2f,
-                barTop
-            ),
-            size = Size(
-                barWidth * (
-                    actor.health / 100f
-                ).coerceIn(0f, 1f),
-                5f * scale
-            )
-        )
-
-        val paint = android.graphics.Paint().apply {
-            color = android.graphics.Color.WHITE
-            textSize = 12f * scale
-            textAlign = android.graphics.Paint.Align.CENTER
-            isFakeBoldText = actor.isPlayer
-        }
-        drawContext.canvas.nativeCanvas.drawText(
-            actor.name,
-            position.x,
-            position.y - 36f * scale,
-            paint
+        drawArenaFighter(
+            actor = actor,
+            position = world(actor.position),
+            scale = scale
         )
     }
+}
+
+private fun DrawScope.drawSciFiObstacle(
+    rect: Rect,
+    index: Int,
+    scale: Float,
+    world: (Offset) -> Offset
+) {
+    val topLeft = world(Offset(rect.left, rect.top))
+    val obstacleSize = Size(
+        rect.width * scale,
+        rect.height * scale
+    )
+    val accent = if (index % 3 == 0) {
+        Color(0xFF00B8D4)
+    } else if (index % 3 == 1) {
+        Color(0xFF7C4DFF)
+    } else {
+        Color(0xFFFF8F00)
+    }
+
+    drawRoundRect(
+        color = Color.Black.copy(alpha = 0.48f),
+        topLeft = topLeft + Offset(7f * scale, 9f * scale),
+        size = obstacleSize,
+        cornerRadius = androidx.compose.ui.geometry.CornerRadius(
+            10f * scale,
+            10f * scale
+        )
+    )
+    drawRoundRect(
+        brush = Brush.linearGradient(
+            listOf(
+                Color(0xFF263244),
+                Color(0xFF111A29),
+                Color(0xFF303847)
+            ),
+            start = topLeft,
+            end = topLeft + Offset(
+                obstacleSize.width,
+                obstacleSize.height
+            )
+        ),
+        topLeft = topLeft,
+        size = obstacleSize,
+        cornerRadius = androidx.compose.ui.geometry.CornerRadius(
+            10f * scale,
+            10f * scale
+        )
+    )
+    drawRoundRect(
+        color = accent.copy(alpha = 0.45f),
+        topLeft = topLeft + Offset(3f * scale, 3f * scale),
+        size = Size(
+            max(1f, obstacleSize.width - 6f * scale),
+            max(1f, obstacleSize.height - 6f * scale)
+        ),
+        cornerRadius = androidx.compose.ui.geometry.CornerRadius(
+            8f * scale,
+            8f * scale
+        ),
+        style = Stroke(width = max(1f, 2f * scale))
+    )
+    drawRoundRect(
+        color = Color.White.copy(alpha = 0.09f),
+        topLeft = topLeft + Offset(12f * scale, 12f * scale),
+        size = Size(
+            max(1f, obstacleSize.width - 24f * scale),
+            max(1f, obstacleSize.height - 24f * scale)
+        ),
+        cornerRadius = androidx.compose.ui.geometry.CornerRadius(
+            5f * scale,
+            5f * scale
+        ),
+        style = Stroke(width = max(1f, 1.4f * scale))
+    )
+
+    val boltRadius = max(1.2f, 2.1f * scale)
+    listOf(
+        Offset(10f, 10f),
+        Offset(rect.width - 10f, 10f),
+        Offset(10f, rect.height - 10f),
+        Offset(rect.width - 10f, rect.height - 10f)
+    ).forEach { local ->
+        drawCircle(
+            Color(0xFF90A4AE),
+            boltRadius,
+            world(
+                Offset(
+                    rect.left + local.x,
+                    rect.top + local.y
+                )
+            )
+        )
+    }
+
+    val stripY = topLeft.y + obstacleSize.height * 0.78f
+    repeat(4) { stripe ->
+        val stripeX = topLeft.x +
+            obstacleSize.width * (0.12f + stripe * 0.18f)
+        drawLine(
+            accent.copy(alpha = 0.42f),
+            Offset(stripeX, stripY),
+            Offset(
+                stripeX + obstacleSize.width * 0.09f,
+                stripY
+            ),
+            max(1f, 3f * scale),
+            cap = StrokeCap.Round
+        )
+    }
+}
+
+private fun DrawScope.drawArenaPickup(
+    pickup: ArenaPickup,
+    position: Offset,
+    scale: Float
+) {
+    val color = when (pickup.type) {
+        PickupType.MEDKIT -> Color(0xFFFF4D67)
+        PickupType.ARMOR -> Color(0xFF29B6F6)
+        PickupType.AMMO -> Color(0xFFFFC400)
+    }
+
+    drawCircle(
+        color.copy(alpha = 0.1f),
+        radius = 28f * scale,
+        center = position
+    )
+    drawCircle(
+        color.copy(alpha = 0.2f),
+        radius = 20f * scale,
+        center = position,
+        style = Stroke(width = max(1f, 2f * scale))
+    )
+    drawCircle(
+        brush = Brush.radialGradient(
+            listOf(
+                Color.White.copy(alpha = 0.9f),
+                color,
+                color.copy(alpha = 0.7f)
+            ),
+            center = position,
+            radius = 12f * scale
+        ),
+        radius = 11f * scale,
+        center = position
+    )
+
+    when (pickup.type) {
+        PickupType.MEDKIT -> {
+            drawLine(
+                Color.White,
+                position - Offset(5f * scale, 0f),
+                position + Offset(5f * scale, 0f),
+                max(1.5f, 3f * scale),
+                StrokeCap.Round
+            )
+            drawLine(
+                Color.White,
+                position - Offset(0f, 5f * scale),
+                position + Offset(0f, 5f * scale),
+                max(1.5f, 3f * scale),
+                StrokeCap.Round
+            )
+        }
+        PickupType.ARMOR -> {
+            val shield = Path().apply {
+                moveTo(position.x, position.y - 6f * scale)
+                lineTo(position.x + 6f * scale, position.y - 3f * scale)
+                lineTo(position.x + 4f * scale, position.y + 5f * scale)
+                lineTo(position.x, position.y + 8f * scale)
+                lineTo(position.x - 4f * scale, position.y + 5f * scale)
+                lineTo(position.x - 6f * scale, position.y - 3f * scale)
+                close()
+            }
+            drawPath(shield, Color.White)
+        }
+        PickupType.AMMO -> {
+            repeat(3) { index ->
+                val dx = (index - 1) * 4.5f * scale
+                drawRoundRect(
+                    Color.White,
+                    topLeft = Offset(
+                        position.x + dx - 1.5f * scale,
+                        position.y - 6f * scale
+                    ),
+                    size = Size(3f * scale, 12f * scale),
+                    cornerRadius =
+                        androidx.compose.ui.geometry.CornerRadius(
+                            1.5f * scale,
+                            1.5f * scale
+                        )
+                )
+            }
+        }
+    }
+}
+
+private fun DrawScope.drawArenaFighter(
+    actor: ArenaActor,
+    position: Offset,
+    scale: Float
+) {
+    val forward = actor.aim.normalizedOrZero().let {
+        if (it == Offset.Zero) Offset(1f, 0f) else it
+    }
+    val side = Offset(-forward.y, forward.x)
+    fun local(front: Float, lateral: Float): Offset {
+        return position +
+            forward * (front * scale) +
+            side * (lateral * scale)
+    }
+
+    val accent = arenaActorColor(actor.id)
+    val stride = if (actor.velocity.getDistance() > 12f) {
+        sin((actor.position.x + actor.position.y) * 0.12f) * 3.5f
+    } else {
+        0f
+    }
+
+    drawOval(
+        color = Color.Black.copy(alpha = 0.5f),
+        topLeft = position + Offset(
+            -18f * scale,
+            7f * scale
+        ),
+        size = Size(39f * scale, 18f * scale)
+    )
+
+    if (actor.armor > 0f) {
+        drawCircle(
+            accent.copy(
+                alpha = 0.1f +
+                    0.12f * (
+                        actor.armor / actor.maxArmor
+                    ).coerceIn(0f, 1f)
+            ),
+            radius = 23f * scale,
+            center = position
+        )
+        drawCircle(
+            accent.copy(alpha = 0.34f),
+            radius = 20f * scale,
+            center = position,
+            style = Stroke(width = max(1f, 1.8f * scale))
+        )
+    }
+
+    // Chân robot chuyển động ngược pha.
+    drawLine(
+        color = Color(0xFF0A1019),
+        start = local(-6f, -7f),
+        end = local(-15f + stride, -9f),
+        strokeWidth = max(3f, 7f * scale),
+        cap = StrokeCap.Round
+    )
+    drawLine(
+        color = Color(0xFF0A1019),
+        start = local(-6f, 7f),
+        end = local(-15f - stride, 9f),
+        strokeWidth = max(3f, 7f * scale),
+        cap = StrokeCap.Round
+    )
+    drawLine(
+        color = accent.copy(alpha = 0.72f),
+        start = local(-9f, -7f),
+        end = local(-14f + stride, -9f),
+        strokeWidth = max(1.2f, 2.2f * scale),
+        cap = StrokeCap.Round
+    )
+    drawLine(
+        color = accent.copy(alpha = 0.72f),
+        start = local(-9f, 7f),
+        end = local(-14f - stride, 9f),
+        strokeWidth = max(1.2f, 2.2f * scale),
+        cap = StrokeCap.Round
+    )
+
+    val body = Path().apply {
+        val a = local(-10f, -10f)
+        val b = local(7f, -12f)
+        val c = local(15f, -7f)
+        val d = local(15f, 7f)
+        val e = local(7f, 12f)
+        val f = local(-10f, 10f)
+        moveTo(a.x, a.y)
+        lineTo(b.x, b.y)
+        lineTo(c.x, c.y)
+        lineTo(d.x, d.y)
+        lineTo(e.x, e.y)
+        lineTo(f.x, f.y)
+        close()
+    }
+    drawPath(
+        body,
+        Brush.linearGradient(
+            listOf(
+                Color(0xFF28384D),
+                Color(0xFF0A111C),
+                accent.copy(alpha = 0.62f)
+            ),
+            start = local(-12f, -12f),
+            end = local(16f, 12f)
+        )
+    )
+    drawPath(
+        body,
+        Color.White.copy(alpha = 0.22f),
+        style = Stroke(width = max(1f, 1.3f * scale))
+    )
+
+    // Vai, tay và súng.
+    drawCircle(
+        accent,
+        radius = 5.2f * scale,
+        center = local(3f, -12f)
+    )
+    drawCircle(
+        accent,
+        radius = 5.2f * scale,
+        center = local(3f, 12f)
+    )
+    drawLine(
+        color = Color(0xFF101824),
+        start = local(3f, 9f),
+        end = local(20f, 9f),
+        strokeWidth = max(3f, 7f * scale),
+        cap = StrokeCap.Round
+    )
+    drawLine(
+        color = Color(0xFF05080D),
+        start = local(10f, 7f),
+        end = local(33f, 7f),
+        strokeWidth = max(3f, 6f * scale),
+        cap = StrokeCap.Round
+    )
+    drawLine(
+        color = accent.copy(alpha = 0.9f),
+        start = local(12f, 7f),
+        end = local(29f, 7f),
+        strokeWidth = max(1f, 1.7f * scale),
+        cap = StrokeCap.Round
+    )
+
+    // Mũ nhìn từ trên xuống với kính ngắm neon.
+    drawCircle(
+        brush = Brush.radialGradient(
+            listOf(
+                Color(0xFF455A75),
+                Color(0xFF101722),
+                Color(0xFF05080D)
+            ),
+            center = local(13f, 0f),
+            radius = 10f * scale
+        ),
+        radius = 9.5f * scale,
+        center = local(13f, 0f)
+    )
+    drawLine(
+        color = if (actor.isPlayer) {
+            Color(0xFF7CFFFA)
+        } else {
+            accent.copy(alpha = 0.9f)
+        },
+        start = local(17f, -5f),
+        end = local(20f, 5f),
+        strokeWidth = max(1.4f, 2.5f * scale),
+        cap = StrokeCap.Round
+    )
+
+    if (
+        actor.fireCooldown >
+        actor.weapon.fireInterval * 0.72f
+    ) {
+        val muzzle = local(36f, 7f)
+        drawCircle(
+            Color(0xFFFFA000).copy(alpha = 0.24f),
+            radius = 12f * scale,
+            center = muzzle
+        )
+        drawCircle(
+            Color(0xFFFFF59D),
+            radius = 4f * scale,
+            center = muzzle
+        )
+        repeat(4) { index ->
+            val angle = index * 1.5708f
+            drawLine(
+                Color(0xFFFFC107),
+                muzzle,
+                muzzle + Offset(
+                    cos(angle),
+                    sin(angle)
+                ) * (10f * scale),
+                max(1f, 1.5f * scale),
+                StrokeCap.Round
+            )
+        }
+    }
+
+    if (actor.isPlayer) {
+        drawCircle(
+            Color(0xFFFFD740).copy(alpha = 0.8f),
+            radius = 24f * scale,
+            center = position,
+            style = Stroke(width = max(1.5f, 2.5f * scale))
+        )
+        val marker = local(0f, 0f) - Offset(0f, 31f * scale)
+        val arrow = Path().apply {
+            moveTo(marker.x, marker.y)
+            lineTo(
+                marker.x - 6f * scale,
+                marker.y - 9f * scale
+            )
+            lineTo(
+                marker.x + 6f * scale,
+                marker.y - 9f * scale
+            )
+            close()
+        }
+        drawPath(arrow, Color(0xFFFFD740))
+    }
+
+    val barWidth = 46f * scale
+    val barTop = position.y - 31f * scale
+    drawRoundRect(
+        Color.Black.copy(alpha = 0.72f),
+        topLeft = Offset(
+            position.x - barWidth / 2f,
+            barTop
+        ),
+        size = Size(barWidth, 5f * scale),
+        cornerRadius = androidx.compose.ui.geometry.CornerRadius(
+            3f * scale,
+            3f * scale
+        )
+    )
+    drawRoundRect(
+        brush = Brush.horizontalGradient(
+            listOf(
+                Color(0xFFFF5252),
+                Color(0xFFFFCA28),
+                Color(0xFF69F0AE)
+            )
+        ),
+        topLeft = Offset(
+            position.x - barWidth / 2f,
+            barTop
+        ),
+        size = Size(
+            barWidth * (
+                actor.health / 100f
+            ).coerceIn(0f, 1f),
+            5f * scale
+        ),
+        cornerRadius = androidx.compose.ui.geometry.CornerRadius(
+            3f * scale,
+            3f * scale
+        )
+    )
+
+    val paint = android.graphics.Paint().apply {
+        color = if (actor.isPlayer) {
+            android.graphics.Color.rgb(255, 224, 92)
+        } else {
+            android.graphics.Color.WHITE
+        }
+        textSize = max(9f, 11f * scale)
+        textAlign = android.graphics.Paint.Align.CENTER
+        isFakeBoldText = true
+        setShadowLayer(
+            4f * scale,
+            0f,
+            2f * scale,
+            android.graphics.Color.BLACK
+        )
+    }
+    drawContext.canvas.nativeCanvas.drawText(
+        actor.name,
+        position.x,
+        position.y - 37f * scale,
+        paint
+    )
 }
 
 private fun arenaActorColor(id: Int): Color {

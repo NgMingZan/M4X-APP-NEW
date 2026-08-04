@@ -1,0 +1,21 @@
+M4X THEME v3.3.1 — ARENA REDESIGN
+
+cd ~/storage/downloads
+unzip -o M4X_V3_3_1_ARENA_REDESIGN_PATCH.zip
+
+cp -a M4X_V3_3_1_ARENA_REDESIGN_PATCH/. \
+~/storage/downloads/M4X-APP-NEW-RUST/
+
+cd ~/storage/downloads/M4X-APP-NEW-RUST
+git config --global --add safe.directory "$PWD"
+git add .
+git commit -m "Redesign Arena fullscreen graphics and joystick"
+git push origin main
+
+Sau đó:
+GitHub → Actions → Build M4X Theme v3.3.1 Arena Redesign APK
+
+Artifact:
+M4X-Theme-v3.3.1-Arena-Redesign-APK
+
+Không cần chạy lại SQL Supabase.

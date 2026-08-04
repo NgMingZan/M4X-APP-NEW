@@ -1,8 +1,8 @@
 {
-  "versionCode": 46,
-  "versionName": "3.3.0",
+  "versionCode": 47,
+  "versionName": "3.3.1",
   "apkUrl": "https://github.com/NgMingZan/M4X-APP-NEW/releases/latest/download/M4X-Theme.apk",
-  "title": "M4X Theme v3.3.0",
-  "message": "M4X Arena thử nghiệm: đấu súng 10 người, tự thêm bot chiến thuật, hiệu ứng đạn và cửa hàng mua súng, giáp, vật phẩm bằng M4X Coin.",
+  "title": "M4X Theme v3.3.1",
+  "message": "Làm mới M4X Arena: chơi toàn màn hình, bản đồ sci-fi, nhân vật robot chi tiết, HUD gọn và joystick bám theo ngón tay.",
   "forceUpdate": false
 }

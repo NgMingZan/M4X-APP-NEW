@@ -517,6 +517,7 @@ private fun M4XApp() {
     var availableUpdate by remember { mutableStateOf<AppUpdateInfo?>(null) }
     var checkingUpdate by remember { mutableStateOf(false) }
     var updateProgress by remember { mutableIntStateOf(-1) }
+    var arenaImmersive by remember { mutableStateOf(false) }
     val snack = remember { SnackbarHostState() }
     val appScope = rememberCoroutineScope()
     fun checkUpdate(showNoUpdate: Boolean = false) {
@@ -570,11 +571,19 @@ private fun M4XApp() {
         return
     }
 
+    LaunchedEffect(tab) {
+        if (tab != Tab.GAMES) arenaImmersive = false
+    }
+
     val isAdmin = profile?.role in setOf("admin", "super_admin")
     Scaffold(
-        contentWindowInsets = WindowInsets.safeDrawing,
+        contentWindowInsets = if (arenaImmersive) {
+            WindowInsets(0, 0, 0, 0)
+        } else {
+            WindowInsets.safeDrawing
+        },
         topBar = {
-            TopAppBar(
+            if (!arenaImmersive) TopAppBar(
                 title = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Image(
@@ -594,7 +603,9 @@ private fun M4XApp() {
             )
         },
         bottomBar = {
-            NavigationBar(windowInsets = WindowInsets.navigationBars) {
+            if (!arenaImmersive) NavigationBar(
+                windowInsets = WindowInsets.navigationBars
+            ) {
                 Nav(tab == Tab.HOME, Icons.Default.Home, "Khám phá") { tab = Tab.HOME }
                 Nav(tab == Tab.QUEST, Icons.Default.Map, "Nhiệm vụ") { tab = Tab.QUEST }
                 Nav(tab == Tab.UPLOAD, Icons.Default.AddCircle, "Đăng") { tab = Tab.UPLOAD }
@@ -602,7 +613,9 @@ private fun M4XApp() {
                 Nav(tab in setOf(Tab.PROFILE, Tab.SHOP, Tab.GAMES), Icons.Default.Person, "Hồ sơ") { tab = Tab.PROFILE }
             }
         },
-        snackbarHost = { SnackbarHost(snack) }
+        snackbarHost = {
+            if (!arenaImmersive) SnackbarHost(snack)
+        }
     ) { padding ->
         Box(Modifier.padding(padding).fillMaxSize()) {
             when (tab) {
@@ -640,11 +653,12 @@ private fun M4XApp() {
                     profile = profile,
                     onBack = { tab = Tab.PROFILE },
                     onCoinChanged = { profile = profile?.copy(points = it) },
-                    onMessage = { message = it }
+                    onMessage = { message = it },
+                    onImmersiveChanged = { arenaImmersive = it }
                 )
                 Tab.ADMIN -> AdminScreen(api, session!!, profile, config, onConfigChanged = { config = it }, onMessage = { message = it })
             }
-            if (showAirdropChest) {
+            if (showAirdropChest && !arenaImmersive) {
                 FloatingActionButton(
                     onClick = {
                         if (!claimingAirdrop) {
