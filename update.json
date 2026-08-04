@@ -1,9 +1,9 @@
 {
-  "versionCode": 48,
-  "versionName": "3.3.2",
+  "versionCode": 49,
+  "versionName": "3.4.0",
   "apkUrl": "https://github.com/NgMingZan/M4X-APP-NEW/releases/latest/download/M4X-Theme.apk",
-  "title": "M4X Theme v3.3.2 — Arena HUD & Respawn FX",
-  "message": "Làm mới M4X Arena: chơi toàn màn hình, bản đồ sci-fi, nhân vật robot chi tiết, HUD gọn và joystick bám theo ngón tay.",
+  "title": "M4X Theme v3.4.0 — Arena Online Beta",
+  "message": "M4X Arena hỗ trợ ghép người chơi thật qua Supabase Realtime, tự thêm bot khi thiếu người và cộng thưởng M4X Coin qua máy chủ.",
   "forceUpdate": false,
-  "notes": "Arena phủ kín màn hình, HUD thu gọn, joystick bám tay và hiệu ứng khiên hồi sinh."
+  "notes": "Ghép trận 10 vị trí, host mô phỏng chung, đồng bộ input/snapshot qua WebSocket và nhận Coin bằng RPC Supabase."
 }

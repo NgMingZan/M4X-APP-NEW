@@ -1,0 +1,37 @@
+M4X Theme v3.4.0 — Arena Online Beta
+STATIC VALIDATION REPORT
+
+[PASS] api_kotlin_balanced
+[PASS] arena_kotlin_balanced
+[PASS] coin_server_side
+[PASS] host_authority
+[PASS] matchmaking_rpc_api
+[PASS] matchmaking_sql
+[PASS] minimum_match_time
+[PASS] no_duplicate_arena_imports
+[PASS] no_duplicate_online_imports
+[PASS] online_kotlin_balanced
+[PASS] online_result_ui
+[PASS] readme
+[PASS] realtime_events
+[PASS] realtime_websocket
+[PASS] reward_cap
+[PASS] reward_rpc_api
+[PASS] reward_sql
+[PASS] room_timeout
+[PASS] rpc_only_tables
+[PASS] slot_reuse
+[PASS] sql_functions_balanced
+[PASS] ten_hz_network
+[PASS] termux_guide
+[PASS] update_json
+[PASS] version_3_4_0
+[PASS] workflow_release_apk
+[PASS] workflow_release_tag
+[PASS] workflow_yaml
+
+Important:
+- Android/NDK APK compilation was not executed in this container.
+- GitHub Actions must perform the real Kotlin, Android and Rust build.
+- Supabase SQL must be executed before online matchmaking can work.
+- Online Beta uses a host phone, not a dedicated authoritative game server.

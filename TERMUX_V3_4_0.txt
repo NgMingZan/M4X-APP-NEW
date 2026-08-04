@@ -1,0 +1,65 @@
+M4X THEME v3.4.0 — ARENA ONLINE BETA
+
+A. CHÉP PATCH VÀO REPOSITORY
+
+cd ~/storage/downloads
+unzip -o M4X_V3_4_0_ARENA_ONLINE_PATCH.zip
+
+cp -a M4X_V3_4_0_ARENA_ONLINE_PATCH/. \
+~/storage/downloads/M4X-APP-NEW-RUST/
+
+cd ~/storage/downloads/M4X-APP-NEW-RUST
+git config --global --add safe.directory "$PWD"
+
+git status
+git add .
+git commit -m "Add M4X Arena Online Beta v3.4.0"
+git push origin main
+
+B. CHẠY SQL SUPABASE
+
+Mở file:
+SUPABASE_V3_4_0_ARENA_ONLINE.sql
+
+Supabase Dashboard
+→ SQL Editor
+→ New query
+→ dán toàn bộ SQL
+→ Run
+
+C. BUILD THỬ
+
+GitHub
+→ M4X-APP-NEW
+→ Actions
+→ Build M4X Theme v3.4.0 Arena Online Beta APK
+
+Artifact:
+M4X-Theme-v3.4.0-Arena-Online-Beta-APK
+
+D. PHÁT HÀNH ONLINE
+
+Sau khi workflow build main thành công:
+
+cd ~/storage/downloads/M4X-APP-NEW-RUST
+git tag -a v3.4.0 -m "M4X Theme v3.4.0 Arena Online Beta"
+git push origin v3.4.0
+
+GitHub Actions sẽ build lại và tạo GitHub Release chứa:
+M4X-Theme.apk
+
+E. KIỂM TRA NHIỀU NGƯỜI
+
+1. Cài cùng APK v3.4.0 trên ít nhất 2 điện thoại.
+2. Đăng nhập bằng 2 tài khoản Supabase khác nhau.
+3. Cùng nhấn TÌM TRẬN trong vòng 8 giây.
+4. Màn ghép trận phải hiện 2/10 người thật.
+5. Vào trận, một máy hiện ONLINE • HOST, máy còn lại hiện ONLINE.
+6. Chơi tối thiểu 45 giây.
+7. Kết thúc trận và kiểm tra M4X Coin trong hồ sơ.
+
+LƯU Ý
+
+- Không cần chạy lại các SQL cũ.
+- Không dùng git push --force.
+- Nếu host mất mạng, trận Beta sẽ hủy và không cộng Coin.

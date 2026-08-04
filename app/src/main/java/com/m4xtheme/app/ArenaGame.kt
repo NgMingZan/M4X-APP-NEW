@@ -110,7 +110,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
 import org.json.JSONObject
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.cos
@@ -125,7 +127,6 @@ private const val ARENA_WIDTH = 1200f
 private const val ARENA_HEIGHT = 720f
 private const val MATCH_SECONDS = 180f
 private const val KILL_LIMIT = 20
-private const val PLAYER_ID = 0
 
 private enum class ArenaPage {
     LOBBY,
@@ -173,6 +174,7 @@ private data class ArenaActor(
     val id: Int,
     val name: String,
     val isPlayer: Boolean,
+    val userId: String = "",
     val position: Offset,
     val velocity: Offset = Offset.Zero,
     val aim: Offset = Offset(1f, 0f),
@@ -228,7 +230,18 @@ private data class ArenaResult(
     val rank: Int,
     val kills: Int,
     val deaths: Int,
-    val winner: String
+    val winner: String,
+    val reward: Int = 0,
+    val balance: Long = 0L,
+    val matchId: String = "",
+    val allResultsJson: String = "[]"
+)
+
+private data class ArenaControl(
+    val move: Offset = Offset.Zero,
+    val firing: Boolean = false,
+    val reload: Boolean = false,
+    val heal: Boolean = false
 )
 
 private val arenaObstacles = listOf(
@@ -324,6 +337,9 @@ fun ArenaGameScreen(
     var loading by remember { mutableStateOf(false) }
     var matchmakingSeconds by remember { mutableIntStateOf(0) }
     var result by remember { mutableStateOf<ArenaResult?>(null) }
+    var onlineTicket by remember {
+        mutableStateOf<ArenaMatchTicket?>(null)
+    }
     val scope = rememberCoroutineScope()
 
     fun refreshStore() {
@@ -354,13 +370,58 @@ fun ArenaGameScreen(
 
     LaunchedEffect(page) {
         onImmersiveChanged(page == ArenaPage.MATCH)
+
         if (page == ArenaPage.MATCHMAKING) {
             matchmakingSeconds = 0
-            repeat(4) {
+            onlineTicket = null
+
+            val name = profile?.displayName
+                ?.takeIf { it.isNotBlank() }
+                ?: profile?.username
+                ?.takeIf { it.isNotBlank() }
+                ?: "M4X Hunter"
+
+            val joined = api.joinArenaMatch(session, name)
+            if (joined.isFailure) {
+                onMessage(
+                    joined.exceptionOrNull()?.message
+                        ?: "Không thể tìm trận online"
+                )
+                page = ArenaPage.LOBBY
+                return@LaunchedEffect
+            }
+
+            var ticket = joined.getOrThrow()
+            onlineTicket = ticket
+
+            while (
+                page == ArenaPage.MATCHMAKING &&
+                ticket.status == "waiting"
+            ) {
                 delay(1_000)
                 matchmakingSeconds += 1
+
+                api.arenaMatchStatus(session, ticket.matchId)
+                    .onSuccess {
+                        ticket = it
+                        onlineTicket = it
+                    }
+                    .onFailure {
+                        onMessage(
+                            it.message ?: "Mất kết nối ghép trận"
+                        )
+                    }
             }
-            page = ArenaPage.MATCH
+
+            if (
+                page == ArenaPage.MATCHMAKING &&
+                ticket.status == "playing"
+            ) {
+                page = ArenaPage.MATCH
+            } else if (page == ArenaPage.MATCHMAKING) {
+                onMessage("Phòng đã đóng, hãy tìm trận lại")
+                page = ArenaPage.LOBBY
+            }
         }
     }
 
@@ -389,7 +450,16 @@ fun ArenaGameScreen(
 
         ArenaPage.MATCHMAKING -> ArenaMatchmaking(
             seconds = matchmakingSeconds,
-            onCancel = { page = ArenaPage.LOBBY }
+            playersFound = onlineTicket?.players?.size ?: 1,
+            onCancel = {
+                val matchId = onlineTicket?.matchId
+                page = ArenaPage.LOBBY
+                if (!matchId.isNullOrBlank()) {
+                    scope.launch {
+                        api.leaveArenaMatch(session, matchId)
+                    }
+                }
+            }
         )
 
         ArenaPage.SHOP -> ArenaShop(
@@ -430,15 +500,81 @@ fun ArenaGameScreen(
             }
         )
 
-        ArenaPage.MATCH -> ArenaMatch(
-            profile = profile,
-            inventory = inventory,
-            onQuit = { page = ArenaPage.LOBBY },
-            onFinished = {
-                result = it
-                page = ArenaPage.RESULT
+        ArenaPage.MATCH -> {
+            val ticket = onlineTicket
+            if (ticket == null) {
+                LaunchedEffect(Unit) {
+                    onMessage("Không có thông tin phòng online")
+                    page = ArenaPage.LOBBY
+                }
+            } else {
+                ArenaMatch(
+                    api = api,
+                    session = session,
+                    ticket = ticket,
+                    profile = profile,
+                    inventory = inventory,
+                    onQuit = {
+                        page = ArenaPage.LOBBY
+                        scope.launch {
+                            api.leaveArenaMatch(
+                                session,
+                                ticket.matchId
+                            )
+                        }
+                    },
+                    onFinished = { arenaResult ->
+                        scope.launch {
+                            var finalResult = arenaResult
+
+                            if (
+                                ticket.hostUserId == session.userId &&
+                                arenaResult.allResultsJson.isNotBlank()
+                            ) {
+                                api.finishArenaMatch(
+                                    session = session,
+                                    matchId = ticket.matchId,
+                                    durationSeconds = MATCH_SECONDS.toInt(),
+                                    results = runCatching {
+                                        org.json.JSONArray(
+                                            arenaResult.allResultsJson
+                                        )
+                                    }.getOrDefault(org.json.JSONArray())
+                                ).onFailure {
+                                    onMessage(
+                                        it.message
+                                            ?: "Không xác nhận được kết quả"
+                                    )
+                                }
+                            }
+
+                            var claim: ArenaRewardClaim? = null
+                            for (attempt in 0 until 6) {
+                                if (claim != null) break
+                                delay(if (attempt == 0) 450 else 900)
+                                api.claimArenaReward(
+                                    session,
+                                    ticket.matchId
+                                ).onSuccess { claim = it }
+                            }
+
+                            claim?.let {
+                                finalResult = arenaResult.copy(
+                                    reward = it.reward,
+                                    balance = it.balance
+                                )
+                                balance = it.balance
+                                onCoinChanged(it.balance)
+                                onMessage(it.message)
+                            }
+
+                            result = finalResult
+                            page = ArenaPage.RESULT
+                        }
+                    }
+                )
             }
-        )
+        }
 
         ArenaPage.RESULT -> ArenaResultScreen(
             result = result ?: ArenaResult(10, 0, 0, "Bot"),
@@ -662,8 +798,9 @@ private fun ArenaLobby(
                         color = Color.White.copy(alpha = 0.72f)
                     )
                     Text(
-                        "Bản thử nghiệm đang chạy 1 người thật + 9 bot. " +
-                            "Online sẽ được nối sau khi gameplay ổn định.",
+                        "Online Beta: tìm người thật trong 8 giây, " +
+                            "sau đó tự thêm bot để đủ 10 vị trí. " +
+                            "M4X Coin được cộng bằng máy chủ.",
                         color = Color(0xFF80CBC4),
                         style = MaterialTheme.typography.bodySmall
                     )
@@ -723,6 +860,7 @@ private fun ArenaInfoCard(
 @Composable
 private fun ArenaMatchmaking(
     seconds: Int,
+    playersFound: Int,
     onCancel: () -> Unit
 ) {
     Box(
@@ -754,13 +892,14 @@ private fun ArenaMatchmaking(
                 fontWeight = FontWeight.Black
             )
             Text(
-                "00:0$seconds",
+                "00:${seconds.toString().padStart(2, '0')}",
                 color = Color(0xFF69F0AE),
                 style = MaterialTheme.typography.displaySmall,
                 fontWeight = FontWeight.Black
             )
             Text(
-                "Đã tìm thấy: 1/10\nĐang thêm 9 bot chiến thuật…",
+                "Đã tìm thấy: $playersFound/10 người thật\n" +
+                    "Còn thiếu ${10 - playersFound} vị trí sẽ thêm bot",
                 color = Color.White.copy(alpha = 0.75f),
                 textAlign = TextAlign.Center
             )
@@ -1007,8 +1146,155 @@ private fun arenaItemDescription(name: String): String = when (name) {
     else -> "Vật phẩm chiến đấu M4X Arena"
 }
 
+
+private fun arenaWeaponByName(name: String): ArenaWeapon = when (name) {
+    smgWeapon().name -> smgWeapon()
+    p90Weapon().name -> p90Weapon()
+    sniperWeapon().name -> sniperWeapon()
+    else -> defaultArenaWeapon()
+}
+
+private fun ArenaActor.toNetJson(): JSONObject = JSONObject()
+    .put("id", id)
+    .put("name", name)
+    .put("human", isPlayer)
+    .put("userId", userId)
+    .put("x", position.x)
+    .put("y", position.y)
+    .put("vx", velocity.x)
+    .put("vy", velocity.y)
+    .put("ax", aim.x)
+    .put("ay", aim.y)
+    .put("health", health)
+    .put("armor", armor)
+    .put("maxArmor", maxArmor)
+    .put("moveSpeed", moveSpeed)
+    .put("kills", kills)
+    .put("deaths", deaths)
+    .put("ammo", ammo)
+    .put("reserve", reserveAmmo)
+    .put("magazine", magazine)
+    .put("medkits", medkits)
+    .put("fireCooldown", fireCooldown)
+    .put("reload", reloadRemaining)
+    .put("respawn", respawnRemaining)
+    .put("shield", spawnShieldRemaining)
+    .put("weapon", weapon.name)
+    .put("lastDamagedBy", lastDamagedBy)
+
+private fun arenaActorFromJson(json: JSONObject): ArenaActor = ArenaActor(
+    id = json.optInt("id"),
+    name = json.optString("name", "M4X"),
+    isPlayer = json.optBoolean("human"),
+    userId = json.optString("userId"),
+    position = Offset(
+        json.optDouble("x").toFloat(),
+        json.optDouble("y").toFloat()
+    ),
+    velocity = Offset(
+        json.optDouble("vx").toFloat(),
+        json.optDouble("vy").toFloat()
+    ),
+    aim = Offset(
+        json.optDouble("ax", 1.0).toFloat(),
+        json.optDouble("ay").toFloat()
+    ),
+    health = json.optDouble("health", 100.0).toFloat(),
+    armor = json.optDouble("armor", 50.0).toFloat(),
+    maxArmor = json.optDouble("maxArmor", 50.0).toFloat(),
+    moveSpeed = json.optDouble("moveSpeed", 205.0).toFloat(),
+    kills = json.optInt("kills"),
+    deaths = json.optInt("deaths"),
+    ammo = json.optInt("ammo", 30),
+    reserveAmmo = json.optInt("reserve", 120),
+    magazine = json.optInt("magazine", 30),
+    medkits = json.optInt("medkits", 1),
+    fireCooldown = json.optDouble("fireCooldown").toFloat(),
+    reloadRemaining = json.optDouble("reload").toFloat(),
+    respawnRemaining = json.optDouble("respawn").toFloat(),
+    spawnShieldRemaining = json.optDouble("shield").toFloat(),
+    weapon = arenaWeaponByName(json.optString("weapon")),
+    lastDamagedBy = json.optInt("lastDamagedBy", -1)
+)
+
+private fun ArenaBullet.toNetJson(): JSONObject = JSONObject()
+    .put("ownerId", ownerId)
+    .put("x", position.x)
+    .put("y", position.y)
+    .put("px", previousPosition.x)
+    .put("py", previousPosition.y)
+    .put("vx", velocity.x)
+    .put("vy", velocity.y)
+    .put("damage", damage)
+    .put("life", life)
+
+private fun arenaBulletFromJson(json: JSONObject) = ArenaBullet(
+    ownerId = json.optInt("ownerId"),
+    position = Offset(
+        json.optDouble("x").toFloat(),
+        json.optDouble("y").toFloat()
+    ),
+    previousPosition = Offset(
+        json.optDouble("px").toFloat(),
+        json.optDouble("py").toFloat()
+    ),
+    velocity = Offset(
+        json.optDouble("vx").toFloat(),
+        json.optDouble("vy").toFloat()
+    ),
+    damage = json.optDouble("damage").toFloat(),
+    life = json.optDouble("life").toFloat()
+)
+
+private fun ArenaPickup.toNetJson(): JSONObject = JSONObject()
+    .put("id", id)
+    .put("type", type.name)
+    .put("x", position.x)
+    .put("y", position.y)
+    .put("respawn", respawnRemaining)
+
+private fun arenaPickupFromJson(json: JSONObject) = ArenaPickup(
+    id = json.optInt("id"),
+    type = runCatching {
+        PickupType.valueOf(json.optString("type"))
+    }.getOrDefault(PickupType.AMMO),
+    position = Offset(
+        json.optDouble("x").toFloat(),
+        json.optDouble("y").toFloat()
+    ),
+    respawnRemaining = json.optDouble("respawn").toFloat()
+)
+
+private fun arenaResultsJson(
+    actors: List<ArenaActor>
+): JSONArray {
+    val ranking = actors.sortedWith(
+        compareByDescending<ArenaActor> { it.kills }
+            .thenBy { it.deaths }
+    )
+    return JSONArray().apply {
+        ranking.forEachIndexed { index, actor ->
+            put(
+                JSONObject()
+                    .put(
+                        "userId",
+                        actor.userId.ifBlank {
+                            "bot:${actor.id}"
+                        }
+                    )
+                    .put("rank", index + 1)
+                    .put("kills", actor.kills)
+                    .put("deaths", actor.deaths)
+            )
+        }
+    }
+}
+
 @Composable
 private fun ArenaMatch(
+    api: SupabaseApi,
+    session: Session,
+    ticket: ArenaMatchTicket,
     profile: Profile?,
     inventory: List<InventoryItem>,
     onQuit: () -> Unit,
@@ -1016,6 +1302,22 @@ private fun ArenaMatch(
 ) {
     val context = LocalContext.current
     val activity = context as? Activity
+    val scope = rememberCoroutineScope()
+    val localActorId = ticket.slot
+    val isHost = ticket.hostUserId == session.userId
+    val controls = remember {
+        ConcurrentHashMap<Int, ArenaControl>()
+    }
+    var realtimeConnected by remember { mutableStateOf(false) }
+    var lastRemoteSnapshotAt by remember {
+        mutableLongStateOf(System.currentTimeMillis())
+    }
+    var matchCompleted by remember { mutableStateOf(false) }
+    var reloadPulse by remember { mutableStateOf(false) }
+    var healPulse by remember { mutableStateOf(false) }
+    var room by remember {
+        mutableStateOf<ArenaRealtimeRoom?>(null)
+    }
 
     DisposableEffect(activity) {
         val previousOrientation = activity?.requestedOrientation
@@ -1062,7 +1364,12 @@ private fun ArenaMatch(
     var matchTime by remember { mutableFloatStateOf(MATCH_SECONDS) }
     var running by remember { mutableStateOf(true) }
     var showQuitDialog by remember { mutableStateOf(false) }
-    var announcement by remember { mutableStateOf("1 người thật • 9 bot") }
+    var announcement by remember {
+        mutableStateOf(
+            "${ticket.players.size} người thật • " +
+                "${10 - ticket.players.size} bot"
+        )
+    }
     var pickupSpawnTimer by remember { mutableFloatStateOf(7f) }
     val density = LocalDensity.current
     val joystickTravel = with(density) { 35.dp.toPx() }
@@ -1090,27 +1397,9 @@ private fun ArenaMatch(
         particles.clear()
         matchTime = MATCH_SECONDS
         running = true
-        announcement = "BẮT ĐẦU!"
+        announcement = "BẮT ĐẦU ONLINE!"
 
-        actors += ArenaActor(
-            id = PLAYER_ID,
-            name = profile?.displayName
-                ?.takeIf { it.isNotBlank() }
-                ?: "M4X Hunter",
-            isPlayer = true,
-            position = spawnPoints.first(),
-            armor = loadout.maxArmor,
-            maxArmor = loadout.maxArmor,
-            moveSpeed = loadout.moveSpeed,
-            ammo = loadout.weapon.magazine,
-            reserveAmmo = loadout.weapon.reserve,
-            magazine = loadout.weapon.magazine,
-            medkits = loadout.medkits,
-            weapon = loadout.weapon,
-            botSkill = 1f,
-            spawnShieldRemaining = 1.8f
-        )
-
+        val playersBySlot = ticket.players.associateBy { it.slot }
         val botNames = listOf(
             "ThiênPro",
             "Zeroo",
@@ -1120,33 +1409,69 @@ private fun ArenaMatch(
             "Nova",
             "Raptor",
             "Kira",
-            "Viper"
+            "Viper",
+            "M4X Bot"
         )
 
-        botNames.forEachIndexed { index, name ->
-            val botWeapon = when (index % 4) {
-                0 -> defaultArenaWeapon()
-                1 -> smgWeapon()
-                2 -> p90Weapon()
-                else -> sniperWeapon()
+        repeat(10) { slot ->
+            val onlinePlayer = playersBySlot[slot]
+            if (onlinePlayer != null) {
+                val actorLoadout = if (slot == localActorId) {
+                    loadout
+                } else {
+                    ArenaLoadout(
+                        weapon = defaultArenaWeapon(),
+                        maxArmor = 50f,
+                        moveSpeed = 205f,
+                        medkits = 1
+                    )
+                }
+                actors += ArenaActor(
+                    id = slot,
+                    name = onlinePlayer.displayName,
+                    isPlayer = true,
+                    userId = onlinePlayer.userId,
+                    position = spawnPoints[slot],
+                    armor = actorLoadout.maxArmor,
+                    maxArmor = actorLoadout.maxArmor,
+                    moveSpeed = actorLoadout.moveSpeed,
+                    ammo = actorLoadout.weapon.magazine,
+                    reserveAmmo = actorLoadout.weapon.reserve,
+                    magazine = actorLoadout.weapon.magazine,
+                    medkits = actorLoadout.medkits,
+                    weapon = actorLoadout.weapon,
+                    botSkill = 1f,
+                    spawnShieldRemaining = 2.4f
+                )
+            } else {
+                val botWeapon = when (slot % 4) {
+                    0 -> defaultArenaWeapon()
+                    1 -> smgWeapon()
+                    2 -> p90Weapon()
+                    else -> sniperWeapon()
+                }
+                actors += ArenaActor(
+                    id = slot,
+                    name = botNames[slot % botNames.size],
+                    isPlayer = false,
+                    position = spawnPoints[slot],
+                    armor = 45f + slot * 3f,
+                    maxArmor = 45f + slot * 3f,
+                    moveSpeed = 190f + slot * 3.5f,
+                    ammo = botWeapon.magazine,
+                    reserveAmmo = botWeapon.reserve,
+                    magazine = botWeapon.magazine,
+                    medkits = if (slot % 3 == 0) 2 else 1,
+                    botSkill = (0.74f + slot * 0.025f)
+                        .coerceAtMost(0.95f),
+                    weapon = botWeapon,
+                    spawnShieldRemaining = 1.8f
+                )
             }
-            val skill = 0.74f + (index * 0.025f)
-            actors += ArenaActor(
-                id = index + 1,
-                name = name,
-                isPlayer = false,
-                position = spawnPoints[index + 1],
-                armor = 45f + index * 3f,
-                maxArmor = 45f + index * 3f,
-                moveSpeed = 190f + index * 3.5f,
-                ammo = botWeapon.magazine,
-                reserveAmmo = botWeapon.reserve,
-                magazine = botWeapon.magazine,
-                medkits = if (index % 3 == 0) 2 else 1,
-                botSkill = skill.coerceAtMost(0.95f),
-                weapon = botWeapon,
-                spawnShieldRemaining = 1.4f
-            )
+        }
+
+        ticket.players.forEach { player ->
+            controls[player.slot] = ArenaControl()
         }
     }
 
@@ -1156,9 +1481,195 @@ private fun ArenaMatch(
         announcement = ""
     }
 
-    LaunchedEffect(running) {
-        if (!running) return@LaunchedEffect
+    DisposableEffect(ticket.matchId) {
+        val realtime = ArenaRealtimeRoom(
+            session = session,
+            matchId = ticket.matchId,
+            onConnected = {
+                scope.launch {
+                    realtimeConnected = true
+                    announcement = if (isHost) {
+                        "BẠN LÀ CHỦ PHÒNG"
+                    } else {
+                        "ĐÃ VÀO PHÒNG ONLINE"
+                    }
+                    delay(900)
+                    announcement = ""
+                }
+            },
+            onInput = { json ->
+                if (isHost) {
+                    val slot = json.optInt("slot", -1)
+                    if (slot in 0..9) {
+                        controls[slot] = ArenaControl(
+                            move = Offset(
+                                json.optDouble("moveX").toFloat(),
+                                json.optDouble("moveY").toFloat()
+                            ).limitLength(1f),
+                            firing = json.optBoolean("firing"),
+                            reload = json.optBoolean("reload"),
+                            heal = json.optBoolean("heal")
+                        )
+                    }
+                }
+            },
+            onSnapshot = { json ->
+                if (!isHost && !matchCompleted) {
+                    scope.launch {
+                        val actorJson = json.optJSONArray("actors")
+                            ?: JSONArray()
+                        val bulletJson = json.optJSONArray("bullets")
+                            ?: JSONArray()
+                        val pickupJson = json.optJSONArray("pickups")
+                            ?: JSONArray()
+
+                        lastRemoteSnapshotAt =
+                            System.currentTimeMillis()
+                        actors.clear()
+                        repeat(actorJson.length()) { index ->
+                            actors += arenaActorFromJson(
+                                actorJson.getJSONObject(index)
+                            )
+                        }
+                        bullets.clear()
+                        repeat(bulletJson.length()) { index ->
+                            bullets += arenaBulletFromJson(
+                                bulletJson.getJSONObject(index)
+                            )
+                        }
+                        pickups.clear()
+                        repeat(pickupJson.length()) { index ->
+                            pickups += arenaPickupFromJson(
+                                pickupJson.getJSONObject(index)
+                            )
+                        }
+                        matchTime = json.optDouble(
+                            "time",
+                            matchTime.toDouble()
+                        ).toFloat()
+                    }
+                }
+            },
+            onEvent = { event, json ->
+                if (
+                    event == "match_finished" &&
+                    !isHost &&
+                    !matchCompleted
+                ) {
+                    scope.launch {
+                        matchCompleted = true
+                        running = false
+                        val results = json.optJSONArray("results")
+                            ?: JSONArray()
+                        var own = JSONObject()
+                        repeat(results.length()) { index ->
+                            val item = results.getJSONObject(index)
+                            if (
+                                item.optString("userId") ==
+                                session.userId
+                            ) {
+                                own = item
+                            }
+                        }
+                        onFinished(
+                            ArenaResult(
+                                rank = own.optInt("rank", 10),
+                                kills = own.optInt("kills"),
+                                deaths = own.optInt("deaths"),
+                                winner = json.optString(
+                                    "winner",
+                                    "M4X"
+                                ),
+                                matchId = ticket.matchId,
+                                allResultsJson = results.toString()
+                            )
+                        )
+                    }
+                }
+            },
+            onError = { message ->
+                scope.launch {
+                    realtimeConnected = false
+                    announcement = message
+                }
+            }
+        )
+        room = realtime
+        realtime.connect()
+
+        onDispose {
+            realtime.close()
+            room = null
+        }
+    }
+
+    LaunchedEffect(ticket.matchId) {
+        delay(8_000)
+        if (!realtimeConnected && !matchCompleted) {
+            running = false
+            onMessage(
+                "Không kết nối được phòng Arena Online. " +
+                    "Hãy kiểm tra mạng rồi tìm trận lại."
+            )
+            onQuit()
+        }
+    }
+
+    LaunchedEffect(
+        realtimeConnected,
+        isHost,
+        matchCompleted
+    ) {
+        if (!realtimeConnected || isHost || matchCompleted) {
+            return@LaunchedEffect
+        }
+
+        lastRemoteSnapshotAt = System.currentTimeMillis()
+        while (running && !matchCompleted) {
+            delay(2_000)
+            if (
+                System.currentTimeMillis() -
+                    lastRemoteSnapshotAt > 6_000
+            ) {
+                running = false
+                onMessage(
+                    "Chủ phòng đã mất kết nối. " +
+                        "Trận bị hủy và không cộng Coin."
+                )
+                onQuit()
+                break
+            }
+        }
+    }
+
+    LaunchedEffect(realtimeConnected, isHost) {
+        if (!realtimeConnected || isHost) return@LaunchedEffect
+
+        while (running && !matchCompleted) {
+            room?.sendInput(
+                JSONObject()
+                    .put("slot", localActorId)
+                    .put("moveX", moveInput.x)
+                    .put("moveY", moveInput.y)
+                    .put("firing", firing)
+                    .put("reload", reloadPulse)
+                    .put("heal", healPulse)
+                    .put("at", System.currentTimeMillis())
+            )
+            reloadPulse = false
+            healPulse = false
+            delay(100)
+        }
+    }
+
+    LaunchedEffect(running, isHost, realtimeConnected) {
+        if (
+            !running ||
+            !isHost ||
+            !realtimeConnected
+        ) return@LaunchedEffect
         var previous = System.nanoTime()
+        var lastSnapshotAt = 0L
 
         while (running) {
             val now = System.nanoTime()
@@ -1166,12 +1677,20 @@ private fun ArenaMatch(
                 .coerceIn(0.012f, 0.045f)
             previous = now
 
+            controls[localActorId] = ArenaControl(
+                move = moveInput,
+                firing = firing,
+                reload = reloadPulse,
+                heal = healPulse
+            )
+            reloadPulse = false
+            healPulse = false
+
             val nextActors = simulateArenaActors(
                 actors = actors.toList(),
                 bullets = bullets.toList(),
                 pickups = pickups.toList(),
-                moveInput = moveInput,
-                firing = firing,
+                controls = controls,
                 dt = dt,
                 obstacles = arenaObstacles,
                 spawnPoints = spawnPoints,
@@ -1214,6 +1733,50 @@ private fun ArenaMatch(
             particles.clear()
             particles.addAll(updatedParticles)
 
+            controls.entries.forEach { entry ->
+                if (entry.value.reload || entry.value.heal) {
+                    controls[entry.key] = entry.value.copy(
+                        reload = false,
+                        heal = false
+                    )
+                }
+            }
+
+            if (
+                realtimeConnected &&
+                System.currentTimeMillis() - lastSnapshotAt >= 100L
+            ) {
+                lastSnapshotAt = System.currentTimeMillis()
+                room?.sendSnapshot(
+                    JSONObject()
+                        .put("time", matchTime)
+                        .put(
+                            "actors",
+                            JSONArray().apply {
+                                actors.forEach {
+                                    put(it.toNetJson())
+                                }
+                            }
+                        )
+                        .put(
+                            "bullets",
+                            JSONArray().apply {
+                                bullets.forEach {
+                                    put(it.toNetJson())
+                                }
+                            }
+                        )
+                        .put(
+                            "pickups",
+                            JSONArray().apply {
+                                pickups.forEach {
+                                    put(it.toNetJson())
+                                }
+                            }
+                        )
+                )
+            }
+
             pickupSpawnTimer -= dt
             if (pickupSpawnTimer <= 0f) {
                 pickupSpawnTimer = 8f
@@ -1248,16 +1811,31 @@ private fun ArenaMatch(
                     compareByDescending<ArenaActor> { it.kills }
                         .thenBy { it.deaths }
                 )
-                val player = actors.first { it.id == PLAYER_ID }
+                val player = actors.first {
+                    it.id == localActorId
+                }
                 val rank = ranking.indexOfFirst {
-                    it.id == PLAYER_ID
+                    it.id == localActorId
                 } + 1
+                val resultsJson = arenaResultsJson(actors)
+                val winnerName =
+                    ranking.firstOrNull()?.name ?: "Bot"
+
+                matchCompleted = true
+                room?.sendEvent(
+                    "match_finished",
+                    JSONObject()
+                        .put("winner", winnerName)
+                        .put("results", resultsJson)
+                )
                 onFinished(
                     ArenaResult(
                         rank = rank,
                         kills = player.kills,
                         deaths = player.deaths,
-                        winner = ranking.firstOrNull()?.name ?: "Bot"
+                        winner = winnerName,
+                        matchId = ticket.matchId,
+                        allResultsJson = resultsJson.toString()
                     )
                 )
             }
@@ -1293,6 +1871,9 @@ private fun ArenaMatch(
         ArenaHud(
             actors = actors,
             matchTime = matchTime,
+            localActorId = localActorId,
+            online = realtimeConnected,
+            isHost = isHost,
             onQuit = { showQuitDialog = true }
         )
 
@@ -1481,31 +2062,14 @@ private fun ArenaMatch(
         }
 
         ArenaActionButtons(
-            actor = actors.firstOrNull { it.id == PLAYER_ID },
+            actor = actors.firstOrNull {
+                it.id == localActorId
+            },
             onReload = {
-                val index = actors.indexOfFirst {
-                    it.id == PLAYER_ID
-                }
-                if (index >= 0) {
-                    actors[index] = startReload(actors[index])
-                }
+                reloadPulse = true
             },
             onHeal = {
-                val index = actors.indexOfFirst {
-                    it.id == PLAYER_ID
-                }
-                if (index >= 0) {
-                    val player = actors[index]
-                    if (
-                        player.medkits > 0 &&
-                        player.health in 1f..94.9f
-                    ) {
-                        actors[index] = player.copy(
-                            health = min(100f, player.health + 55f),
-                            medkits = player.medkits - 1
-                        )
-                    }
-                }
+                healPulse = true
             }
         )
     }
@@ -1543,9 +2107,14 @@ private fun ArenaMatch(
 private fun ArenaHud(
     actors: List<ArenaActor>,
     matchTime: Float,
+    localActorId: Int,
+    online: Boolean,
+    isHost: Boolean,
     onQuit: () -> Unit
 ) {
-    val player = actors.firstOrNull { it.id == PLAYER_ID }
+    val player = actors.firstOrNull {
+        it.id == localActorId
+    }
     val topThree = actors.sortedWith(
         compareByDescending<ArenaActor> { it.kills }
             .thenBy { it.deaths }
@@ -1587,13 +2156,18 @@ private fun ArenaHud(
                         Spacer(Modifier.width(4.dp))
                         Text(
                             "${index + 1}. ${actor.name}",
-                            color = if (actor.isPlayer) {
-                                Color(0xFFFFD740)
-                            } else {
-                                Color.White.copy(alpha = 0.84f)
+                            color = when {
+                                actor.id == localActorId ->
+                                    Color(0xFFFFD740)
+                                actor.isPlayer ->
+                                    Color(0xFF80DEEA)
+                                else ->
+                                    Color.White.copy(alpha = 0.84f)
                             },
                             style = MaterialTheme.typography.labelSmall,
-                            fontWeight = if (actor.isPlayer) {
+                            fontWeight = if (
+                                actor.id == localActorId
+                            ) {
                                 FontWeight.Black
                             } else {
                                 FontWeight.Medium
@@ -1633,6 +2207,33 @@ private fun ArenaHud(
                 color = Color.White,
                 fontWeight = FontWeight.Black,
                 style = MaterialTheme.typography.titleMedium
+            )
+        }
+
+        Surface(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = 35.dp),
+            color = if (online) {
+                Color(0xAA123D2B)
+            } else {
+                Color(0xAA5B1E28)
+            },
+            shape = RoundedCornerShape(8.dp)
+        ) {
+            Text(
+                when {
+                    !online -> "ĐANG KẾT NỐI"
+                    isHost -> "ONLINE • HOST"
+                    else -> "ONLINE"
+                },
+                modifier = Modifier.padding(
+                    horizontal = 7.dp,
+                    vertical = 2.dp
+                ),
+                color = Color.White,
+                fontWeight = FontWeight.Bold,
+                style = MaterialTheme.typography.labelSmall
             )
         }
 
@@ -1942,12 +2543,38 @@ private fun ArenaResultScreen(
                     ArenaResultStat("Bị hạ", result.deaths.toString())
                 }
                 HorizontalDivider(color = Color.White.copy(alpha = 0.14f))
-                Text(
-                    "Bản thử nghiệm chưa tự cộng Coin. " +
-                        "Phần thưởng online sẽ do máy chủ xác minh.",
-                    color = Color.White.copy(alpha = 0.68f),
-                    textAlign = TextAlign.Center
-                )
+                Surface(
+                    color = if (result.reward > 0) {
+                        Color(0xFF193D2B)
+                    } else {
+                        Color(0xFF2B2438)
+                    },
+                    shape = RoundedCornerShape(18.dp)
+                ) {
+                    Column(
+                        Modifier.padding(
+                            horizontal = 22.dp,
+                            vertical = 12.dp
+                        ),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            "+${result.reward} M4X COIN",
+                            color = Color(0xFFFFD54F),
+                            fontWeight = FontWeight.Black,
+                            style = MaterialTheme.typography.titleLarge
+                        )
+                        Text(
+                            if (result.reward > 0) {
+                                "Đã được máy chủ cộng vào tài khoản"
+                            } else {
+                                "Chưa có thưởng hoặc đã đạt giới hạn"
+                            },
+                            color = Color.White.copy(alpha = 0.72f),
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                }
                 Button(
                     onClick = onReplay,
                     modifier = Modifier.fillMaxWidth()
@@ -2010,8 +2637,7 @@ private fun simulateArenaActors(
     actors: List<ArenaActor>,
     bullets: List<ArenaBullet>,
     pickups: List<ArenaPickup>,
-    moveInput: Offset,
-    firing: Boolean,
+    controls: Map<Int, ArenaControl>,
     dt: Float,
     obstacles: List<Rect>,
     spawnPoints: List<Offset>,
@@ -2064,7 +2690,8 @@ private fun simulateArenaActors(
                 next.copy(
                     reloadRemaining = remaining,
                     velocity = if (next.isPlayer) {
-                        moveInput.normalizedOrZero() *
+                        (controls[next.id]?.move ?: Offset.Zero)
+                            .normalizedOrZero() *
                             next.moveSpeed * 0.58f
                     } else {
                         next.velocity * 0.82f
@@ -2074,7 +2701,27 @@ private fun simulateArenaActors(
         }
 
         if (next.isPlayer) {
-            val velocity = moveInput
+            val control = controls[next.id] ?: ArenaControl()
+
+            if (
+                control.reload &&
+                next.reloadRemaining <= 0f
+            ) {
+                next = startReload(next)
+            }
+
+            if (
+                control.heal &&
+                next.medkits > 0 &&
+                next.health in 1f..94.9f
+            ) {
+                next = next.copy(
+                    health = min(100f, next.health + 55f),
+                    medkits = next.medkits - 1
+                )
+            }
+
+            val velocity = control.move
                 .limitLength(1f) * next.moveSpeed
             val target = bestVisibleTarget(
                 actor = next,
@@ -2094,7 +2741,10 @@ private fun simulateArenaActors(
                 aim = aim
             )
 
-            if (firing && next.reloadRemaining <= 0f) {
+            if (
+                control.firing &&
+                next.reloadRemaining <= 0f
+            ) {
                 next = fireActor(
                     actor = next,
                     onBullet = onBullet,

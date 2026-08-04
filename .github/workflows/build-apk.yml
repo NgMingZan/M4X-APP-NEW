@@ -1,16 +1,17 @@
-name: Build M4X Theme v3.3.2 Arena HUD Respawn APK
+name: Build M4X Theme v3.4.0 Arena Online Beta APK
 
 on:
   workflow_dispatch:
   push:
     branches: [main]
+    tags: ['v*']
 
 jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:
-      contents: read
+      contents: write
 
     steps:
       - name: Checkout
@@ -82,12 +83,25 @@ jobs:
           test -f app/src/main/jniLibs/x86_64/libm4x_theme_core.so
 
       - name: Prepare APK
-        run: cp app/build/outputs/apk/debug/app-debug.apk M4X-Theme-v3.3.2-Arena-HUD-Respawn.apk
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk M4X-Theme-v3.4.0-Arena-Online-Beta.apk
+          cp app/build/outputs/apk/debug/app-debug.apk M4X-Theme.apk
+
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            M4X-Theme.apk \
+            --title "M4X Theme $GITHUB_REF_NAME — Arena Online Beta" \
+            --notes "Arena Online Beta: ghép người thật, thiếu người thêm bot và thưởng M4X Coin qua Supabase RPC."
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: M4X-Theme-v3.3.2-Arena-HUD-Respawn-APK
-          path: M4X-Theme-v3.3.2-Arena-HUD-Respawn.apk
+          name: M4X-Theme-v3.4.0-Arena-Online-Beta-APK
+          path: M4X-Theme-v3.4.0-Arena-Online-Beta.apk
           retention-days: 14
           if-no-files-found: error
