@@ -39,8 +39,9 @@ data class ArenaRewardClaim(
  * Client Supabase Realtime tối giản dùng trực tiếp protocol Phoenix v1.
  *
  * Kênh sử dụng Broadcast public với topic chứa UUID ngẫu nhiên của trận.
- * Dữ liệu nhạy cảm và M4X Coin không truyền qua kênh này; phần thưởng vẫn do
- * Postgres RPC xử lý.
+ * WebSocket chỉ dùng Supabase API key ở bước handshake; không gắn access token
+ * người dùng để tránh lỗi 401 khi token phiên đã cũ. Dữ liệu nhạy cảm và M4X Coin
+ * không truyền qua kênh này; phần thưởng vẫn do Postgres RPC xử lý.
  */
 class ArenaRealtimeRoom(
     private val session: Session,
@@ -68,14 +69,22 @@ class ArenaRealtimeRoom(
             return
         }
 
+        val encodedKey = java.net.URLEncoder.encode(
+            SupabaseConfig.key,
+            Charsets.UTF_8.name()
+        )
         val wsUrl = SupabaseConfig.url
             .replaceFirst("https://", "wss://")
             .replaceFirst("http://", "ws://") +
-            "/realtime/v1/websocket?apikey=${SupabaseConfig.key}&vsn=1.0.0"
+            "/realtime/v1/websocket?apikey=$encodedKey&vsn=1.0.0"
 
+        // Đây là kênh Broadcast public. Không gửi access token người dùng ở
+        // HTTP WebSocket handshake vì token hết hạn sẽ làm server trả 401
+        // trước cả khi phx_join được gửi. API key được truyền cả query và
+        // header để tương thích khóa anon/publishable của Supabase.
         val request = Request.Builder()
             .url(wsUrl)
-            .header("Authorization", "Bearer ${session.token}")
+            .header("apikey", SupabaseConfig.key)
             .build()
 
         socket = http.newWebSocket(request, object : WebSocketListener() {
@@ -142,7 +151,12 @@ class ArenaRealtimeRoom(
                 response: Response?
             ) {
                 joined = false
-                onError(t.message ?: "Không kết nối được máy chủ trận đấu")
+                val message = when (response?.code) {
+                    401 -> "Arena Realtime bị từ chối xác thực (401)"
+                    403 -> "Arena Realtime không có quyền truy cập (403)"
+                    else -> t.message ?: "Không kết nối được máy chủ trận đấu"
+                }
+                onError(message)
             }
         })
     }
@@ -215,8 +229,9 @@ class ArenaRealtimeRoom(
                     .put("postgres_changes", JSONArray())
                     .put("private", false)
             )
-            .put("access_token", session.token)
 
+        // access_token là tùy chọn với public Broadcast. Bỏ token phiên khỏi
+        // payload để Realtime dùng API key của kết nối và không bị lỗi token cũ.
         socket?.send(
             JSONObject()
                 .put("topic", topic)

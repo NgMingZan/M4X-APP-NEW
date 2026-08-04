@@ -1,0 +1,16 @@
+M4X Theme v3.6.4 Arena Realtime 401 Fix
+
+PASS: versionCode 57
+PASS: versionName 3.6.4
+PASS: no bearer websocket
+PASS: apikey query
+PASS: apikey header
+PASS: no join access token
+PASS: public channel
+PASS: 401 friendly error
+PASS: RPC file retained
+PASS: Fishing retained
+
+PASS: ArenaOnline.kt syntax compiled with local Kotlin stubs
+
+Android build cần GitHub Actions xác nhận.
