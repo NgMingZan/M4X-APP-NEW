@@ -38,7 +38,7 @@ import java.util.Random
 import kotlin.math.max
 import kotlin.math.min
 
-private enum class GamesPage { HUB, OBSTACLE, MAZE, TREASURE, PET }
+private enum class GamesPage { HUB, ARENA, OBSTACLE, MAZE, TREASURE, PET }
 
 @Composable
 fun M4XGamesHubScreen(
@@ -62,6 +62,7 @@ fun M4XGamesHubScreen(
             onCoinChanged = onCoinChanged,
             onMessage = onMessage
         )
+        GamesPage.ARENA -> ArenaGameScreen(api, session, profile, { page = GamesPage.HUB }, onCoinChanged, onMessage)
         GamesPage.OBSTACLE -> ObstacleGameScreen(api, session, { page = GamesPage.HUB }, onCoinChanged, onMessage)
         GamesPage.MAZE -> MazeGameScreen(api, session, profile, { page = GamesPage.HUB }, onCoinChanged, onMessage)
         GamesPage.TREASURE -> TreasureMapScreen(api, session, { page = GamesPage.HUB }, onCoinChanged, onMessage)
@@ -124,6 +125,77 @@ private fun GamesHub(
                     Text("Số dư hiện tại", color = Color.White.copy(alpha = .8f))
                     Text("$balance M4X COIN", color = Color.White, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Black)
                     Text("Phần thưởng được xác nhận trên Supabase", color = Color.White.copy(alpha = .72f))
+                }
+            }
+        }
+        item {
+            ElevatedCard(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onOpen(GamesPage.ARENA) },
+                colors = CardDefaults.elevatedCardColors(
+                    containerColor = Color(0xFF0D1B2B)
+                ),
+                shape = RoundedCornerShape(28.dp)
+            ) {
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .background(
+                            Brush.linearGradient(
+                                listOf(
+                                    Color(0xFF052E4F),
+                                    Color(0xFF251B57),
+                                    Color(0xFF080B13)
+                                )
+                            )
+                        )
+                        .padding(20.dp)
+                ) {
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                Icons.Default.MyLocation,
+                                null,
+                                tint = Color(0xFFFFD54F),
+                                modifier = Modifier.size(38.dp)
+                            )
+                            Spacer(Modifier.width(12.dp))
+                            Column {
+                                Text(
+                                    "M4X ARENA",
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Black,
+                                    style = MaterialTheme.typography.titleLarge
+                                )
+                                Text(
+                                    "Bắn súng 10 người • thiếu người tự thêm bot",
+                                    color = Color.White.copy(alpha = 0.72f)
+                                )
+                            }
+                        }
+                        Row(
+                            Modifier.horizontalScroll(
+                                rememberScrollState()
+                            ),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            AssistChip(
+                                onClick = {},
+                                label = { Text("AI chiến thuật") }
+                            )
+                            AssistChip(
+                                onClick = {},
+                                label = { Text("Cửa hàng riêng") }
+                            )
+                            AssistChip(
+                                onClick = {},
+                                label = { Text("Hiệu ứng đạn") }
+                            )
+                        }
+                    }
                 }
             }
         }

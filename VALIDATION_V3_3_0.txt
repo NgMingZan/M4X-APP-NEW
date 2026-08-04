@@ -1,0 +1,19 @@
+M4X Theme v3.3.0 — Arena Prototype Static Validation
+
+[PASS] brace_counts
+[PASS] hub_integration
+[PASS] immersive_landscape
+[PASS] kotlin_parser_no_syntax_error
+[PASS] no_client_reward
+[PASS] required_files
+[PASS] shop
+[PASS] shop_sql
+[PASS] smart_bot
+[PASS] sql_transaction
+[PASS] ten_players
+[PASS] version
+[PASS] workflow
+
+Kotlin parser smoke test produced no 'expecting' syntax diagnostics.
+Full Android/Compose/Rust APK build was not executed in this container.
+GitHub Actions must perform the real build.

@@ -1,0 +1,42 @@
+M4X THEME v3.3.0 — M4X ARENA PROTOTYPE
+
+1. Giải nén:
+
+cd ~/storage/downloads
+unzip -o M4X_THEME_V3_3_0_ARENA_PROTOTYPE.zip
+
+2. Chép đè source vào repository đang dùng:
+
+cp -a M4X_THEME_V3_3_0_ARENA_PROTOTYPE/M4X_THEME_V3_UNIVERSE/. \
+~/storage/downloads/M4X-APP-NEW-RUST/
+
+3. Đẩy lên GitHub:
+
+cd ~/storage/downloads/M4X-APP-NEW-RUST
+git config --global --add safe.directory "$PWD"
+git status
+git add .
+git commit -m "Add M4X Arena prototype v3.3.0"
+git push origin main
+
+4. Chạy SQL cửa hàng:
+
+Supabase → SQL Editor → New query
+Mở file:
+SUPABASE_V3_3_0_ARENA_SHOP.sql
+
+Sao chép toàn bộ nội dung → Run.
+
+5. Build APK:
+
+GitHub → M4X-APP-NEW → Actions
+→ Build M4X Theme v3.3.0 Arena Prototype APK
+
+Artifact:
+M4X-Theme-v3.3.0-Arena-Prototype-APK
+
+Bản thử nghiệm:
+- 1 người chơi + 9 bot.
+- Chưa nối máy chủ online.
+- Chưa cộng Coin sau trận.
+- Cửa hàng mua và trang bị dùng M4X Coin thật trên Supabase.
