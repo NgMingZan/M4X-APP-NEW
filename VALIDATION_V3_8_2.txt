@@ -1,0 +1,16 @@
+M4X Theme v3.8.2 Theme Detail Flow
+
+PASS: versionCode 60
+PASS: versionName 3.8.2
+PASS: Dialog import
+PASS: selected theme state
+PASS: detail dialog
+PASS: detail button
+PASS: buy only in detail
+PASS: record view on open
+PASS: no direct ThemeCard buy callback
+PASS: gallery
+PASS: safety info
+PASS: no new SQL
+
+Android build must still be confirmed by GitHub Actions.

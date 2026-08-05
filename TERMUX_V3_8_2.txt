@@ -1,0 +1,8 @@
+cd ~/storage/downloads
+unzip -o M4X_V3_8_2_THEME_DETAIL_FLOW_PATCH.zip
+cp -afv M4X_V3_8_2_THEME_DETAIL_FLOW_PATCH/. ~/storage/downloads/M4X-APP-NEW-RUST/
+cd ~/storage/downloads/M4X-APP-NEW-RUST
+git status --short
+git add -A
+git commit -m "Add theme detail purchase flow v3.8.2"
+git push origin main
