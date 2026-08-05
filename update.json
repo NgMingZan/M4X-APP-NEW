@@ -1,9 +1,9 @@
 {
-  "versionCode": 73,
-  "versionName": "4.1.0",
+  "versionCode": 74,
+  "versionName": "4.1.1",
   "apkUrl": "https://github.com/NgMingZan/M4X-APP-NEW/releases/latest/download/M4X-Theme.apk",
-  "title": "M4X Theme v4.1.0 — Đánh giá và bình luận Theme",
-  "message": "Thêm đánh giá 1–5 sao và bình luận riêng cho từng theme. Người đã sở hữu theme được gửi hoặc sửa đánh giá; Admin có thể ẩn bình luận vi phạm.",
+  "title": "M4X Theme v4.1.1 — Hiện cần mới trong Cửa hàng",
+  "message": "Sửa Cửa hàng câu cá không tải lại danh mục online. Mỗi lần mở Cửa hàng, Bản đồ hoặc Kho cá, app tự đồng bộ lại dữ liệu Supabase.",
   "forceUpdate": false,
-  "notes": "Bắt buộc chạy SUPABASE_V4_1_0_THEME_RATINGS_COMMENTS.sql trước khi cài APK."
+  "notes": "Chạy SUPABASE_V4_1_1_FISHING_NEW_RODS_FIX.sql để bảo đảm 5 cần mới đang active."
 }

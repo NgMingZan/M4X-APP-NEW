@@ -249,6 +249,16 @@ fun FishingGameScreen(
         refreshState()
     }
 
+    LaunchedEffect(page) {
+        if (
+            page == FishingPage.SHOP ||
+            page == FishingPage.MAPS ||
+            page == FishingPage.INVENTORY
+        ) {
+            refreshState()
+        }
+    }
+
     BackHandler(enabled = page != FishingPage.HOME) {
         if (page == FishingPage.PLAY) {
             onImmersiveChanged(false)
@@ -295,7 +305,10 @@ fun FishingGameScreen(
                     state = current,
                     onBack = onBack,
                     onMaps = { page = FishingPage.MAPS },
-                    onShop = { page = FishingPage.SHOP },
+                    onShop = {
+                        refreshState()
+                        page = FishingPage.SHOP
+                    },
                     onInventory = {
                         page = FishingPage.INVENTORY
                     }

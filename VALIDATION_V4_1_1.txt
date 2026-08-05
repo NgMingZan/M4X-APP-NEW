@@ -1,0 +1,13 @@
+M4X Theme v4.1.1 validation
+
+PASS: versionCode 74
+PASS: versionName 4.1.1
+PASS: shop refresh effect
+PASS: maps refresh effect
+PASS: inventory refresh effect
+PASS: shop click refresh
+PASS: 5 rods SQL
+PASS: rods active
+PASS: Fishing braces balanced
+
+Chạy SQL v4.1.1 và build APK bằng GitHub Actions.

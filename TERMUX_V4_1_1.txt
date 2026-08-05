@@ -1,0 +1,8 @@
+cd ~/storage/downloads
+unzip -o M4X_V4_1_1_FISHING_SHOP_REFRESH_FIX_PATCH.zip
+cp -afv M4X_V4_1_1_FISHING_SHOP_REFRESH_FIX_PATCH/. ~/storage/downloads/M4X-APP-NEW-RUST/
+cd ~/storage/downloads/M4X-APP-NEW-RUST
+git status --short
+git add -A
+git commit -m "Refresh fishing shop online catalog v4.1.1"
+git push origin main
