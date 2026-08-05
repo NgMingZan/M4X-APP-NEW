@@ -108,6 +108,7 @@ private enum class FishingPhase {
     LOADING,
     CASTING,
     REELING,
+    RESOLVING,
     CAUGHT,
     ESCAPED,
     ERROR
@@ -1243,6 +1244,7 @@ private fun FishingPlay(
     var phase by remember { mutableStateOf(FishingPhase.LOADING) }
     var cast by remember { mutableStateOf<FishingCastStart?>(null) }
     var result by remember { mutableStateOf<FishingCastFinish?>(null) }
+    var battleErrorMessage by remember { mutableStateOf<String?>(null) }
     var buffs by remember { mutableStateOf(FishingBattleBuffs()) }
 
     var playerMaxHp by remember { mutableFloatStateOf(100f) }
@@ -1337,11 +1339,14 @@ private fun FishingPlay(
         }
     }
 
-    suspend fun finishBattle(success: Boolean) {
-        val active = cast ?: return
-        if (finishing) return
+    suspend fun resolveBattle(success: Boolean) {
+        val active = cast ?: run {
+            finishing = false
+            phase = FishingPhase.ERROR
+            battleErrorMessage = "Không tìm thấy lượt câu đang hoạt động"
+            return
+        }
 
-        finishing = true
         val quality = (
             if (success) {
                 55f +
@@ -1352,14 +1357,60 @@ private fun FishingPlay(
             }
             ).toInt().coerceIn(0, 100)
 
-        api.finishFishingCast(
+        val safeDuration = if (success) {
+            battleElapsedMs.coerceIn(
+                active.minReelMs,
+                active.maxReelMs
+            )
+        } else {
+            battleElapsedMs.coerceIn(
+                0,
+                active.maxReelMs
+            )
+        }
+
+        var finishResult = api.finishFishingCast(
             session = session,
             castId = active.castId,
             success = success,
-            reelDurationMs = battleElapsedMs,
+            reelDurationMs = safeDuration,
             reelQuality = quality
-        ).onSuccess {
+        )
+
+        val firstError = finishResult
+            .exceptionOrNull()
+            ?.message
+            .orEmpty()
+
+        if (
+            success &&
+            finishResult.isFailure &&
+            (
+                firstError.contains(
+                    "Thời gian kéo cá",
+                    ignoreCase = true
+                ) ||
+                    firstError.contains(
+                        "Kéo cá quá nhanh",
+                        ignoreCase = true
+                    )
+                )
+        ) {
+            delay(850)
+            finishResult = api.finishFishingCast(
+                session = session,
+                castId = active.castId,
+                success = true,
+                reelDurationMs = active.minReelMs.coerceAtMost(
+                    active.maxReelMs
+                ),
+                reelQuality = quality
+            )
+        }
+
+        finishResult.onSuccess {
             result = it
+            battleErrorMessage = null
             if (it.caught) {
                 phase = FishingPhase.CAUGHT
                 vibratePattern(
@@ -1377,12 +1428,33 @@ private fun FishingPlay(
                 )
             }
         }.onFailure {
+            val message = it.message
+                ?: "Không xác nhận được trận câu"
+
+            battleErrorMessage = message
+            if (success && bossHp <= 0f) {
+                bossHp = 1f
+            }
             phase = FishingPhase.ERROR
-            onMessage(
-                it.message ?: "Không xác nhận được trận câu"
-            )
+            onMessage(message)
         }
+
         finishing = false
+    }
+
+    fun requestBattleFinish(success: Boolean) {
+        if (
+            finishing ||
+            phase != FishingPhase.REELING
+        ) {
+            return
+        }
+
+        finishing = true
+        phase = FishingPhase.RESOLVING
+        scope.launch {
+            resolveBattle(success)
+        }
     }
 
     fun abandonAnd(action: () -> Unit) {
@@ -1417,6 +1489,7 @@ private fun FishingPlay(
         phase = FishingPhase.LOADING
         cast = null
         result = null
+        battleErrorMessage = null
         finishing = false
         battleElapsedMs = 0
         attackAccumulator = 0f
@@ -1541,13 +1614,13 @@ private fun FishingPlay(
             }
 
             if (bossHp <= 0f) {
-                finishBattle(true)
+                requestBattleFinish(true)
             } else if (
                 playerHp <= 0f ||
                 lineTension >= 120f ||
                 battleElapsedMs >= active.maxReelMs
             ) {
-                finishBattle(false)
+                requestBattleFinish(false)
             }
 
             delay(16)
@@ -1797,6 +1870,10 @@ private fun FishingPlay(
                     title = "ĐÃ THẢ CÂU",
                     subtitle = "Chờ thủy quái cắn mồi…"
                 )
+                FishingPhase.RESOLVING -> FishingBossMessage(
+                    title = "ĐANG XÁC NHẬN",
+                    subtitle = "Máy chủ đang lưu kết quả trận câu…"
+                )
                 FishingPhase.CAUGHT -> FishingVictoryUpgrade(
                     result = result,
                     options = remember(round) {
@@ -1814,6 +1891,7 @@ private fun FishingPlay(
                 FishingPhase.ERROR -> FishingDefeatOverlay(
                     phase = phase,
                     result = result,
+                    errorMessage = battleErrorMessage,
                     onRetry = { round += 1 },
                     onHome = onBack
                 )
@@ -2509,6 +2587,7 @@ private fun FishingVictoryUpgrade(
 private fun FishingDefeatOverlay(
     phase: FishingPhase,
     result: FishingCastFinish?,
+    errorMessage: String?,
     onRetry: () -> Unit,
     onHome: () -> Unit
 ) {
@@ -2540,8 +2619,13 @@ private fun FishingDefeatOverlay(
                     textAlign = TextAlign.Center
                 )
                 Text(
-                    result?.message
-                        ?: "Nâng cấp cần câu hoặc dùng kỹ năng đúng lúc để chiến thắng.",
+                    if (phase == FishingPhase.ERROR) {
+                        errorMessage
+                            ?: "Không xác nhận được kết quả trận câu."
+                    } else {
+                        result?.message
+                            ?: "Nâng cấp cần câu hoặc dùng kỹ năng đúng lúc để chiến thắng."
+                    },
                     color = Color(0xFF6685A3),
                     textAlign = TextAlign.Center
                 )

@@ -1,9 +1,9 @@
 {
-  "versionCode": 66,
-  "versionName": "3.8.8",
+  "versionCode": 67,
+  "versionName": "3.8.9",
   "apkUrl": "https://github.com/NgMingZan/M4X-APP-NEW/releases/latest/download/M4X-Theme.apk",
-  "title": "M4X Theme v3.8.8 — Hiện đầy đủ nút Mua/Tải",
-  "message": "Sửa nút Mua/Tải vẫn bị thanh cử chỉ HyperOS che: Dialog tôn trọng vùng hệ thống, thêm khoảng đệm đáy cố định và tăng chiều cao nút.",
+  "title": "M4X Theme v3.8.9 — Sửa lỗi boss 0 máu vẫn thua",
+  "message": "Sửa M4X Fishing: boss về 0 máu được khóa trạng thái thắng trước timeout, thời gian kết quả được hiệu chỉnh theo giới hạn máy chủ và lỗi Supabase được hiển thị đúng nguyên nhân.",
   "forceUpdate": false,
   "notes": "Không cần SQL mới. Dùng lại dữ liệu theme hiện có; tên tác giả lấy từ metadata của theme."
 }

@@ -1,0 +1,14 @@
+M4X Theme v3.8.9 validation
+
+PASS: versionCode 67
+PASS: versionName 3.8.9
+PASS: resolving phase
+PASS: result lock
+PASS: win priority
+PASS: duration clamped
+PASS: timing retry
+PASS: real error shown
+PASS: old finishBattle calls removed
+PASS: braces balanced
+
+Android build still requires GitHub Actions confirmation.
