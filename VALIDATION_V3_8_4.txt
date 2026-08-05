@@ -1,0 +1,14 @@
+M4X Theme v3.8.4 validation
+
+PASS: versionCode 62
+PASS: versionName 3.8.4
+PASS: Theme title header
+PASS: Grid chunked(3)
+PASS: ThemeCard modifier param
+PASS: Author helper
+PASS: Author section label
+PASS: Detail black background
+PASS: HorizontalPager preview
+PASS: Buy/download flow kept
+PASS: Kotlin braces balanced in MainActivity.kt
+NOTE: Android build still requires GitHub Actions confirmation.

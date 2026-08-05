@@ -1,9 +1,9 @@
 {
-  "versionCode": 61,
-  "versionName": "3.8.3",
+  "versionCode": 62,
+  "versionName": "3.8.4",
   "apkUrl": "https://github.com/NgMingZan/M4X-APP-NEW/releases/latest/download/M4X-Theme.apk",
-  "title": "M4X Theme v3.8.3 — Mua rồi mới tải Theme",
-  "message": "Luồng mới: Danh sách theme → Xem chi tiết → Vuốt toàn bộ ảnh → Mua bằng M4X Coin → Tải theme. Theme đã mua được lưu trong thư viện tài khoản.",
+  "title": "M4X Theme v3.8.4 — Giao diện Theme kiểu video",
+  "message": "Đổi giao diện phần theme sang kiểu thư viện giống video: lưới 3 cột, thẻ poster tối giản, trang chi tiết nền đen, ảnh lớn vuốt ngang, thêm tên tác giả đăng theme.",
   "forceUpdate": false,
-  "notes": "Không cần SQL mới. Sử dụng bảng theme_purchases hiện có để kiểm tra quyền tải."
+  "notes": "Không cần SQL mới. Dùng lại dữ liệu theme hiện có; tên tác giả lấy từ metadata của theme."
 }

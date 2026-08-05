@@ -1,0 +1,8 @@
+cd ~/storage/downloads
+unzip -o M4X_V3_8_4_THEME_VIDEO_STYLE_PATCH.zip
+cp -afv M4X_V3_8_4_THEME_VIDEO_STYLE_PATCH/. ~/storage/downloads/M4X-APP-NEW-RUST/
+cd ~/storage/downloads/M4X-APP-NEW-RUST
+git status --short
+git add -A
+git commit -m "Redesign theme UI to video style v3.8.4"
+git push origin main

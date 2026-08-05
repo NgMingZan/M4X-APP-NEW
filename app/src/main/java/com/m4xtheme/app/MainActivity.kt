@@ -51,6 +51,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -58,6 +59,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -1105,23 +1107,88 @@ private fun HomeScreen(
             OutlinedTextField(query, { query = it }, modifier = Modifier.fillMaxWidth(), placeholder = { Text("Tìm theme, tác giả, phong cách…") }, leadingIcon = { Icon(Icons.Default.Search, null) }, shape = RoundedCornerShape(22.dp), singleLine = true)
         }
         item {
-            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf("Tất cả", "HyperOS", "MIUI", "Lockscreen", "Icons", "Control Center").forEach { FilterChip(selected = category == it, onClick = { category = it }, label = { Text(it) }) }
-            }
-        }
-        item { SectionTitle("Danh sách theme", "Chạm vào theme để xem chi tiết và vuốt toàn bộ ảnh") }
-        if (filtered.isEmpty()) item { EmptyState("Chưa có theme", "Theme được duyệt sẽ xuất hiện ở đây") }
-        else items(filtered, key = { it.id }) { theme ->
-            ThemeCard(
-                theme = theme,
-                purchased = theme.id in purchasedThemeIds,
-                onViewDetails = {
-                    selectedTheme = theme
-                    scope.launch {
-                        api.recordThemeView(session, theme.id)
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    "Chủ đề",
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.Black,
+                    modifier = Modifier.fillMaxWidth(),
+                    textAlign = TextAlign.Center
+                )
+                Row(
+                    Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    listOf("Trên máy", "Ưa thích", "Thích", "Đặt hàng").forEachIndexed { index, tab ->
+                        val selectedTab = index == 0
+                        Surface(
+                            color = if (selectedTab) {
+                                MaterialTheme.colorScheme.surfaceVariant
+                            } else {
+                                Color.Transparent
+                            },
+                            shape = RoundedCornerShape(16.dp),
+                            border = BorderStroke(
+                                1.dp,
+                                MaterialTheme.colorScheme.outline.copy(alpha = .45f)
+                            )
+                        ) {
+                            Text(
+                                tab,
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 11.dp),
+                                fontWeight = FontWeight.Bold,
+                                color = if (selectedTab) {
+                                    MaterialTheme.colorScheme.onSurface
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                }
+                            )
+                        }
                     }
                 }
+                Row(
+                    Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    listOf("Tất cả", "HyperOS", "MIUI", "Lockscreen", "Icons", "Control Center").forEach {
+                        FilterChip(
+                            selected = category == it,
+                            onClick = { category = it },
+                            label = { Text(it) }
+                        )
+                    }
+                }
+            }
+        }
+        item {
+            Text(
+                "Khám phá theme theo kiểu thư viện giống video: chạm để xem chi tiết, vuốt ảnh và xem tác giả.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+        }
+        if (filtered.isEmpty()) item { EmptyState("Chưa có theme", "Theme được duyệt sẽ xuất hiện ở đây") }
+        else items(filtered.chunked(3)) { row ->
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                row.forEach { theme ->
+                    ThemeCard(
+                        theme = theme,
+                        purchased = theme.id in purchasedThemeIds,
+                        modifier = Modifier.weight(1f),
+                        onViewDetails = {
+                            selectedTheme = theme
+                            scope.launch {
+                                api.recordThemeView(session, theme.id)
+                            }
+                        }
+                    )
+                }
+                repeat(3 - row.size) {
+                    Spacer(Modifier.weight(1f))
+                }
+            }
         }
     }
 }
@@ -1134,116 +1201,107 @@ private fun HomeScreen(
 private fun ThemeCard(
     theme: ThemeItem,
     purchased: Boolean,
+    modifier: Modifier = Modifier,
     onViewDetails: () -> Unit
 ) {
+    val authorName = themeAuthorName(theme)
     ElevatedCard(
-        shape = RoundedCornerShape(26.dp),
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onViewDetails)
+        shape = RoundedCornerShape(22.dp),
+        modifier = modifier
+            .height(236.dp)
+            .clickable(onClick = onViewDetails),
+        colors = CardDefaults.elevatedCardColors(
+            containerColor = Color(0xFF101010)
+        )
     ) {
-        Column {
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .height(180.dp)
-                    .background(MaterialTheme.colorScheme.surfaceVariant)
-            ) {
-                if (theme.previewUrl.isNotBlank()) {
-                    AsyncImage(
-                        theme.previewUrl,
-                        theme.title,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize()
-                    )
-                } else {
+        Box(Modifier.fillMaxSize()) {
+            if (theme.previewUrl.isNotBlank()) {
+                AsyncImage(
+                    theme.previewUrl,
+                    theme.title,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else {
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .background(Color(0xFF1B1B1B)),
+                    contentAlignment = Alignment.Center
+                ) {
                     Icon(
                         Icons.Default.Palette,
                         null,
-                        Modifier.size(56.dp).align(Alignment.Center),
+                        Modifier.size(44.dp),
                         tint = MaterialTheme.colorScheme.primary
                     )
                 }
+            }
+
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(
+                                Color.Transparent,
+                                Color.Transparent,
+                                Color.Black.copy(alpha = .75f)
+                            )
+                        )
+                    )
+            )
+
+            if (purchased) {
                 Surface(
-                    color = Color.Black.copy(alpha = .62f),
-                    shape = RoundedCornerShape(bottomEnd = 16.dp),
-                    modifier = Modifier.align(Alignment.TopStart)
+                    color = Color(0xFF20B486).copy(alpha = .94f),
+                    shape = RoundedCornerShape(bottomStart = 14.dp),
+                    modifier = Modifier.align(Alignment.TopEnd)
                 ) {
                     Text(
-                        if (theme.coinPrice > 0) {
-                            "${theme.coinPrice} M4X COIN"
-                        } else {
-                            "MIỄN PHÍ"
-                        },
-                        Modifier.padding(10.dp),
-                        fontWeight = FontWeight.Bold
+                        "Đã sở hữu",
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                        color = Color.White,
+                        fontWeight = FontWeight.Black,
+                        maxLines = 1
                     )
                 }
-                if (purchased) {
-                    Surface(
-                        color = Color(0xFF20B486).copy(alpha = .94f),
-                        shape = RoundedCornerShape(bottomStart = 16.dp),
-                        modifier = Modifier.align(Alignment.TopEnd)
-                    ) {
-                        Row(
-                            Modifier.padding(
-                                horizontal = 10.dp,
-                                vertical = 8.dp
-                            ),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                Icons.Default.CheckCircle,
-                                null,
-                                Modifier.size(17.dp),
-                                tint = Color.White
-                            )
-                            Spacer(Modifier.width(5.dp))
-                            Text(
-                                "Đã sở hữu",
-                                color = Color.White,
-                                fontWeight = FontWeight.Black
-                            )
-                        }
-                    }
-                }
             }
+
+            Surface(
+                color = Color.Black.copy(alpha = .58f),
+                shape = RoundedCornerShape(bottomEnd = 14.dp),
+                modifier = Modifier.align(Alignment.TopStart)
+            ) {
+                Text(
+                    if (theme.coinPrice > 0) "${theme.coinPrice} coin" else "Miễn phí",
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1
+                )
+            }
+
             Column(
-                Modifier.padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                Modifier
+                    .align(Alignment.BottomStart)
+                    .fillMaxWidth()
+                    .padding(10.dp)
             ) {
                 Text(
                     theme.title,
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Black
+                    color = Color.White,
+                    fontWeight = FontWeight.Black,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
                 Text(
-                    theme.description.ifBlank { "Theme cộng đồng M4X" },
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    authorName,
+                    color = Color.White.copy(alpha = .85f),
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        Icons.Default.Star,
-                        null,
-                        Modifier.size(18.dp),
-                        tint = Color(0xFFFFC857)
-                    )
-                    Text(" ${"%.1f".format(theme.rating)}")
-                    Spacer(Modifier.width(16.dp))
-                    Icon(Icons.Default.Download, null, Modifier.size(18.dp))
-                    Text(" ${theme.downloads}")
-                    Spacer(Modifier.weight(1f))
-                    Button(
-                        onClick = onViewDetails,
-                        shape = RoundedCornerShape(16.dp)
-                    ) {
-                        Icon(Icons.Default.Info, null, Modifier.size(18.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text("Xem chi tiết")
-                    }
-                }
             }
         }
     }
@@ -1270,64 +1328,43 @@ private fun ThemeDetailDialog(
         pageCount = { previews.size.coerceAtLeast(1) }
     )
     val busy = purchasing || downloading
+    val authorName = themeAuthorName(theme)
+    val authorSubtitle = themeAuthorSubtitle(theme)
 
     Dialog(
-        onDismissRequest = {
-            if (!busy) onDismiss()
-        },
+        onDismissRequest = { if (!busy) onDismiss() },
         properties = DialogProperties(
             usePlatformDefaultWidth = false,
             decorFitsSystemWindows = false
         )
     ) {
         Surface(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(top = 18.dp),
-            shape = RoundedCornerShape(
-                topStart = 30.dp,
-                topEnd = 30.dp
-            ),
-            color = MaterialTheme.colorScheme.surface
+            modifier = Modifier.fillMaxSize(),
+            color = Color.Black
         ) {
-            Column {
+            Column(
+                modifier = Modifier.fillMaxSize()
+            ) {
                 Box(
                     Modifier
                         .fillMaxWidth()
-                        .height(330.dp)
-                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                        .padding(top = 16.dp)
                 ) {
-                    if (previews.isNotEmpty()) {
-                        HorizontalPager(
-                            state = pagerState,
-                            modifier = Modifier.fillMaxSize()
-                        ) { page ->
-                            AsyncImage(
-                                previews[page],
-                                "${theme.title} ${page + 1}",
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier.fillMaxSize()
-                            )
-                        }
-                    } else {
-                        Icon(
-                            Icons.Default.Palette,
-                            null,
-                            Modifier
-                                .size(84.dp)
-                                .align(Alignment.Center),
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                    }
-
+                    Text(
+                        "Chủ đề",
+                        color = Color.White,
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Black,
+                        modifier = Modifier.align(Alignment.Center)
+                    )
                     IconButton(
                         onClick = onDismiss,
                         enabled = !busy,
                         modifier = Modifier
-                            .align(Alignment.TopStart)
-                            .padding(12.dp)
+                            .align(Alignment.CenterStart)
+                            .padding(start = 12.dp)
                             .background(
-                                Color.Black.copy(alpha = .58f),
+                                Color.White.copy(alpha = .10f),
                                 CircleShape
                             )
                     ) {
@@ -1337,216 +1374,198 @@ private fun ThemeDetailDialog(
                             tint = Color.White
                         )
                     }
+                }
 
-                    Surface(
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(12.dp),
-                        color = if (purchased) {
-                            Color(0xFF19A97D).copy(alpha = .94f)
-                        } else {
-                            Color.Black.copy(alpha = .70f)
-                        },
-                        shape = RoundedCornerShape(16.dp)
-                    ) {
-                        Text(
-                            when {
-                                purchased -> "ĐÃ SỞ HỮU"
-                                theme.coinPrice > 0 ->
-                                    "${theme.coinPrice} M4X COIN"
-                                else -> "MIỄN PHÍ"
-                            },
-                            modifier = Modifier.padding(
-                                horizontal = 13.dp,
-                                vertical = 9.dp
-                            ),
-                            color = Color.White,
-                            fontWeight = FontWeight.Black
-                        )
-                    }
-
-                    if (previews.size > 1) {
+                Row(
+                    Modifier
+                        .horizontalScroll(rememberScrollState())
+                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    listOf("Trên máy", "Ưa thích", "Thích", "Đặt hàng").forEachIndexed { index, label ->
                         Surface(
-                            modifier = Modifier
-                                .align(Alignment.BottomCenter)
-                                .padding(bottom = 14.dp),
-                            color = Color.Black.copy(alpha = .48f),
-                            shape = CircleShape
+                            color = if (index == 0) Color(0xFF2B2B2B) else Color.Transparent,
+                            shape = RoundedCornerShape(16.dp),
+                            border = BorderStroke(1.dp, Color.White.copy(alpha = .16f))
                         ) {
-                            Row(
-                                Modifier.padding(
-                                    horizontal = 11.dp,
-                                    vertical = 7.dp
-                                ),
-                                horizontalArrangement =
-                                    Arrangement.spacedBy(6.dp)
+                            Text(
+                                label,
+                                color = Color.White.copy(alpha = if (index == 0) 1f else .75f),
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
+
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .height(420.dp)
+                ) {
+                    if (previews.isNotEmpty()) {
+                        HorizontalPager(
+                            state = pagerState,
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(horizontal = 26.dp),
+                            pageSpacing = 12.dp
+                        ) { page ->
+                            Box(
+                                Modifier
+                                    .fillMaxSize()
+                                    .clip(RoundedCornerShape(28.dp))
+                                    .background(Color(0xFF151515))
                             ) {
-                                previews.indices.forEach { index ->
-                                    Box(
-                                        Modifier
-                                            .size(
-                                                if (pagerState.currentPage == index) {
-                                                    9.dp
-                                                } else {
-                                                    7.dp
-                                                }
-                                            )
-                                            .background(
-                                                if (pagerState.currentPage == index) {
-                                                    Color.White
-                                                } else {
-                                                    Color.White.copy(alpha = .45f)
-                                                },
-                                                CircleShape
-                                            )
-                                    )
-                                }
+                                AsyncImage(
+                                    previews[page],
+                                    "${theme.title} ${page + 1}",
+                                    contentScale = ContentScale.Fit,
+                                    modifier = Modifier.fillMaxSize()
+                                )
                             }
+                        }
+                    } else {
+                        Box(
+                            Modifier
+                                .fillMaxSize()
+                                .padding(horizontal = 26.dp)
+                                .clip(RoundedCornerShape(28.dp))
+                                .background(Color(0xFF161616)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                Icons.Default.Palette,
+                                null,
+                                Modifier.size(72.dp),
+                                tint = MaterialTheme.colorScheme.primary
+                            )
                         }
                     }
                 }
 
                 LazyColumn(
                     modifier = Modifier.weight(1f),
-                    contentPadding = PaddingValues(18.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                    contentPadding = PaddingValues(horizontal = 18.dp, vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
+                    item {
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            if (theme.category.isNotBlank()) {
+                                AssistChip(
+                                    onClick = { },
+                                    label = { Text(theme.category) }
+                                )
+                            }
+                            AssistChip(
+                                onClick = { },
+                                label = { Text(theme.osVersion.ifBlank { "MIUI/HyperOS" }) }
+                            )
+                            AssistChip(
+                                onClick = { },
+                                label = { Text("${"%.1f".format(theme.rating)} ★") }
+                            )
+                        }
+                    }
+
                     item {
                         Text(
                             theme.title,
+                            color = Color.White,
                             style = MaterialTheme.typography.headlineSmall,
                             fontWeight = FontWeight.Black
                         )
-                        Spacer(Modifier.height(5.dp))
+                        Spacer(Modifier.height(6.dp))
                         Text(
-                            theme.description.ifBlank {
-                                "Theme cộng đồng M4X chưa có mô tả chi tiết."
-                            },
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            theme.description.ifBlank { "Theme cộng đồng M4X." },
+                            color = Color.White.copy(alpha = .78f)
                         )
                     }
 
-                    if (previews.size > 1) {
-                        item {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically
+                    item {
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Surface(
+                                color = Color(0xFF242424),
+                                shape = CircleShape
                             ) {
-                                Icon(
-                                    Icons.Default.Swipe,
-                                    null,
-                                    tint = MaterialTheme.colorScheme.primary
-                                )
-                                Spacer(Modifier.width(8.dp))
+                                Box(
+                                    Modifier.size(46.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        authorName.take(1).uppercase(),
+                                        color = Color.White,
+                                        fontWeight = FontWeight.Black
+                                    )
+                                }
+                            }
+                            Column(Modifier.weight(1f)) {
                                 Text(
-                                    "Vuốt ảnh sang trái hoặc phải để xem toàn bộ ${previews.size} ảnh",
-                                    fontWeight = FontWeight.Bold
+                                    "Tác giả",
+                                    color = Color.White.copy(alpha = .56f),
+                                    style = MaterialTheme.typography.bodySmall
                                 )
+                                Text(
+                                    authorName,
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Black
+                                )
+                                if (authorSubtitle.isNotBlank()) {
+                                    Text(
+                                        authorSubtitle,
+                                        color = Color.White.copy(alpha = .60f),
+                                        style = MaterialTheme.typography.bodySmall
+                                    )
+                                }
                             }
                         }
                     }
 
                     item {
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.horizontalScroll(
-                                rememberScrollState()
-                            )
+                        ElevatedCard(
+                            colors = CardDefaults.elevatedCardColors(
+                                containerColor = Color(0xFF141414)
+                            ),
+                            shape = RoundedCornerShape(22.dp)
                         ) {
-                            AssistChip(
-                                onClick = { },
-                                label = {
-                                    Text(theme.category.ifBlank { "Theme" })
-                                },
-                                leadingIcon = {
-                                    Icon(Icons.Default.Category, null)
-                                }
-                            )
-                            AssistChip(
-                                onClick = { },
-                                label = {
-                                    Text(
-                                        theme.osVersion.ifBlank {
-                                            "MIUI/HyperOS"
-                                        }
-                                    )
-                                },
-                                leadingIcon = {
-                                    Icon(Icons.Default.PhoneAndroid, null)
-                                }
-                            )
-                            AssistChip(
-                                onClick = { },
-                                label = {
-                                    Text(
-                                        "${"%.1f".format(theme.rating)} sao"
-                                    )
-                                },
-                                leadingIcon = {
-                                    Icon(Icons.Default.Star, null)
-                                }
-                            )
-                            AssistChip(
-                                onClick = { },
-                                label = {
-                                    Text("${theme.downloads} lượt tải")
-                                },
-                                leadingIcon = {
-                                    Icon(Icons.Default.Download, null)
-                                }
-                            )
-                        }
-                    }
-
-                    item {
-                        ElevatedCard(shape = RoundedCornerShape(20.dp)) {
                             Column(
-                                Modifier.padding(15.dp),
-                                verticalArrangement =
-                                    Arrangement.spacedBy(8.dp)
+                                Modifier.padding(16.dp),
+                                verticalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
-                                Row(
-                                    verticalAlignment =
-                                        Alignment.CenterVertically
-                                ) {
-                                    Icon(
-                                        Icons.Default.Verified,
-                                        null,
-                                        tint =
-                                            MaterialTheme.colorScheme.primary
-                                    )
-                                    Spacer(Modifier.width(8.dp))
-                                    Text(
-                                        "Thông tin bản được duyệt",
-                                        fontWeight = FontWeight.Black
-                                    )
-                                }
                                 Text(
-                                    "Hệ điều hành: ${
-                                        theme.osVersion.ifBlank {
-                                            "Chưa ghi rõ"
-                                        }
-                                    }"
+                                    "Thông tin bản được duyệt",
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Black
                                 )
                                 Text(
-                                    "Mức an toàn: ${
-                                        theme.clientSafetyLevel.ifBlank {
-                                            "Chưa đánh giá"
-                                        }
-                                    }"
+                                    "Hệ điều hành: ${theme.osVersion.ifBlank { "Chưa ghi rõ" }}",
+                                    color = Color.White.copy(alpha = .88f)
                                 )
                                 Text(
-                                    "Điểm an toàn: ${theme.clientSafetyScore}/100"
+                                    "Mức an toàn: ${theme.clientSafetyLevel.ifBlank { "Chưa đánh giá" }}",
+                                    color = Color.White.copy(alpha = .88f)
                                 )
                                 Text(
-                                    if (
-                                        theme.approvedFileSha256.isNotBlank()
-                                    ) {
-                                        "File tải có xác minh SHA-256"
+                                    "Điểm an toàn: ${theme.clientSafetyScore}/100",
+                                    color = Color.White.copy(alpha = .88f)
+                                )
+                                Text(
+                                    "Lượt tải: ${theme.downloads}",
+                                    color = Color.White.copy(alpha = .88f)
+                                )
+                                Text(
+                                    if (theme.approvedFileSha256.isNotBlank()) {
+                                        "Có xác minh SHA-256"
                                     } else {
                                         "Nguồn tải ngoài hoặc chưa có SHA-256"
                                     },
-                                    color =
-                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                    color = Color.White.copy(alpha = .66f)
                                 )
                             }
                         }
@@ -1555,124 +1574,122 @@ private fun ThemeDetailDialog(
                     item {
                         if (purchased) {
                             ElevatedCard(
-                                shape = RoundedCornerShape(20.dp),
+                                shape = RoundedCornerShape(22.dp),
                                 colors = CardDefaults.elevatedCardColors(
-                                    containerColor =
-                                        Color(0xFF19A97D).copy(alpha = .13f)
+                                    containerColor = Color(0xFF113528)
                                 )
                             ) {
                                 Row(
-                                    Modifier.padding(15.dp),
-                                    verticalAlignment =
-                                        Alignment.CenterVertically
+                                    Modifier.padding(16.dp),
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Icon(
                                         Icons.Default.CheckCircle,
                                         null,
-                                        tint = Color(0xFF15936E)
+                                        tint = Color(0xFF48D8A0)
                                     )
                                     Spacer(Modifier.width(10.dp))
                                     Column {
                                         Text(
                                             "Theme đã thuộc thư viện của bạn",
+                                            color = Color.White,
                                             fontWeight = FontWeight.Black
                                         )
                                         Text(
                                             "Bạn có thể tải lại bất cứ lúc nào.",
-                                            color =
-                                                MaterialTheme.colorScheme.onSurfaceVariant
+                                            color = Color.White.copy(alpha = .72f)
                                         )
                                     }
                                 }
                             }
                         } else {
-                            Text(
-                                "Số dư của bạn: $currentCoin M4X COIN",
-                                fontWeight = FontWeight.Bold,
-                                color = if (
-                                    currentCoin >= theme.coinPrice
-                                ) {
-                                    MaterialTheme.colorScheme.primary
-                                } else {
-                                    MaterialTheme.colorScheme.error
+                            ElevatedCard(
+                                shape = RoundedCornerShape(22.dp),
+                                colors = CardDefaults.elevatedCardColors(
+                                    containerColor = Color(0xFF141414)
+                                )
+                            ) {
+                                Column(Modifier.padding(16.dp)) {
+                                    Text(
+                                        "Số dư: $currentCoin M4X COIN",
+                                        color = if (currentCoin >= theme.coinPrice) Color(0xFFFFCF60) else Color(0xFFFF807B),
+                                        fontWeight = FontWeight.Black
+                                    )
+                                    Spacer(Modifier.height(4.dp))
+                                    Text(
+                                        "Mua trước rồi mới tải theme.",
+                                        color = Color.White.copy(alpha = .72f)
+                                    )
                                 }
-                            )
-                            Text(
-                                "Mua hoặc nhận theme trước. Sau khi thành công, nút này sẽ chuyển thành Tải theme.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color =
-                                    MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                            }
                         }
                     }
                 }
 
-                HorizontalDivider()
-                Row(
-                    Modifier.padding(14.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                Surface(
+                    color = Color.Black,
+                    tonalElevation = 0.dp,
+                    shadowElevation = 12.dp,
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    OutlinedButton(
-                        onClick = onDismiss,
-                        enabled = !busy,
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(16.dp)
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 18.dp, vertical = 12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Text("Quay lại")
-                    }
+                        OutlinedButton(
+                            onClick = onDismiss,
+                            enabled = !busy,
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(20.dp),
+                            border = BorderStroke(1.dp, Color(0xFFFFB13A))
+                        ) {
+                            Text(
+                                "Tạo",
+                                color = Color(0xFFFFB13A),
+                                fontWeight = FontWeight.Black
+                            )
+                        }
 
-                    Button(
-                        onClick = if (purchased) onDownload else onBuy,
-                        enabled = !busy && (
-                            purchased ||
-                                currentCoin >= theme.coinPrice
-                            ),
-                        modifier = Modifier.weight(1.45f),
-                        shape = RoundedCornerShape(16.dp)
-                    ) {
-                        when {
-                            purchasing -> {
-                                CircularProgressIndicator(
-                                    Modifier.size(18.dp),
-                                    strokeWidth = 2.dp
-                                )
-                                Spacer(Modifier.width(7.dp))
-                                Text("Đang mua…")
-                            }
-                            downloading -> {
-                                CircularProgressIndicator(
-                                    Modifier.size(18.dp),
-                                    strokeWidth = 2.dp
-                                )
-                                Spacer(Modifier.width(7.dp))
-                                Text("Đang tải…")
-                            }
-                            purchased -> {
-                                Icon(
-                                    Icons.Default.Download,
-                                    null,
-                                    Modifier.size(19.dp)
-                                )
-                                Spacer(Modifier.width(7.dp))
-                                Text("Tải theme")
-                            }
-                            theme.coinPrice > 0 -> {
-                                Icon(
-                                    Icons.Default.ShoppingCart,
-                                    null,
-                                    Modifier.size(19.dp)
-                                )
-                                Spacer(Modifier.width(7.dp))
-                                Text("Mua ${theme.coinPrice} coin")
-                            }
-                            else -> {
-                                Icon(
-                                    Icons.Default.AddCircle,
-                                    null,
-                                    Modifier.size(19.dp)
-                                )
-                                Spacer(Modifier.width(7.dp))
-                                Text("Nhận miễn phí")
+                        Button(
+                            onClick = if (purchased) onDownload else onBuy,
+                            enabled = !busy && (purchased || currentCoin >= theme.coinPrice),
+                            modifier = Modifier.weight(1.4f),
+                            shape = RoundedCornerShape(20.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFFFFC34A),
+                                contentColor = Color.Black
+                            )
+                        ) {
+                            when {
+                                purchasing -> {
+                                    CircularProgressIndicator(
+                                        Modifier.size(18.dp),
+                                        strokeWidth = 2.dp,
+                                        color = Color.Black
+                                    )
+                                    Spacer(Modifier.width(7.dp))
+                                    Text("Đang mua…", fontWeight = FontWeight.Black)
+                                }
+                                downloading -> {
+                                    CircularProgressIndicator(
+                                        Modifier.size(18.dp),
+                                        strokeWidth = 2.dp,
+                                        color = Color.Black
+                                    )
+                                    Spacer(Modifier.width(7.dp))
+                                    Text("Đang tải…", fontWeight = FontWeight.Black)
+                                }
+                                purchased -> {
+                                    Text("Tải theme", fontWeight = FontWeight.Black)
+                                }
+                                theme.coinPrice > 0 -> {
+                                    Text("Mua bằng ${theme.coinPrice} coin", fontWeight = FontWeight.Black)
+                                }
+                                else -> {
+                                    Text("Nhận miễn phí", fontWeight = FontWeight.Black)
+                                }
                             }
                         }
                     }
@@ -1682,6 +1699,27 @@ private fun ThemeDetailDialog(
     }
 }
 
+private fun themeMetadata(theme: ThemeItem): JSONObject =
+    runCatching { JSONObject(theme.clientThemeMetadata.ifBlank { "{}" }) }
+        .getOrDefault(JSONObject())
+
+private fun themeAuthorName(theme: ThemeItem): String {
+    val meta = themeMetadata(theme)
+    return meta.optString("author")
+        .ifBlank { meta.optString("designer") }
+        .ifBlank { meta.optString("creator") }
+        .ifBlank { "Nhà sáng tạo M4X" }
+}
+
+private fun themeAuthorSubtitle(theme: ThemeItem): String {
+    val meta = themeMetadata(theme)
+    return meta.optString("author_contact")
+        .ifBlank { meta.optString("publisher") }
+        .ifBlank { if (theme.ownerId.isNotBlank()) "ID: ${theme.ownerId.take(8)}" else "" }
+}
+
+@Composable
+private fun QuestHub
 @Composable
 private fun QuestHub(api: SupabaseApi, session: Session, profile: Profile?, onCoinChanged: (Long) -> Unit, onMessage: (String) -> Unit) {
     val scope = rememberCoroutineScope()
