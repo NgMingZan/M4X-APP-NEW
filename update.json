@@ -1,9 +1,9 @@
 {
-  "versionCode": 65,
-  "versionName": "3.8.7",
+  "versionCode": 66,
+  "versionName": "3.8.8",
   "apkUrl": "https://github.com/NgMingZan/M4X-APP-NEW/releases/latest/download/M4X-Theme.apk",
-  "title": "M4X Theme v3.8.7 — Sửa thanh nút Theme",
-  "message": "Bỏ nút Tạo không đúng chức năng, giữ một nút Mua/Nhận/Tải duy nhất và đẩy thanh thao tác lên trên thanh điều hướng của điện thoại.",
+  "title": "M4X Theme v3.8.8 — Hiện đầy đủ nút Mua/Tải",
+  "message": "Sửa nút Mua/Tải vẫn bị thanh cử chỉ HyperOS che: Dialog tôn trọng vùng hệ thống, thêm khoảng đệm đáy cố định và tăng chiều cao nút.",
   "forceUpdate": false,
   "notes": "Không cần SQL mới. Dùng lại dữ liệu theme hiện có; tên tác giả lấy từ metadata của theme."
 }

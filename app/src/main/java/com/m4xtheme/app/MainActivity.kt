@@ -1375,7 +1375,7 @@ private fun ThemeDetailDialog(
         onDismissRequest = { if (!busy) onDismiss() },
         properties = DialogProperties(
             usePlatformDefaultWidth = false,
-            decorFitsSystemWindows = false
+            decorFitsSystemWindows = true
         )
     ) {
         Surface(
@@ -1672,7 +1672,8 @@ private fun ThemeDetailDialog(
                     shadowElevation = 12.dp,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .navigationBarsPadding()
+                        .windowInsetsPadding(WindowInsets.navigationBars)
+                        .padding(bottom = 28.dp)
                 ) {
                     Button(
                         onClick = if (purchased) onDownload else onBuy,
@@ -1684,9 +1685,9 @@ private fun ThemeDetailDialog(
                             .fillMaxWidth()
                             .padding(
                                 horizontal = 18.dp,
-                                vertical = 12.dp
+                                vertical = 8.dp
                             )
-                            .heightIn(min = 54.dp),
+                            .heightIn(min = 58.dp),
                         shape = RoundedCornerShape(20.dp),
                         colors = ButtonDefaults.buttonColors(
                             containerColor = Color(0xFFFFC34A),

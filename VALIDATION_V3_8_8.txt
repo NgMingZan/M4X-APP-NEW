@@ -1,0 +1,12 @@
+M4X Theme v3.8.8 validation
+
+PASS: versionCode 66
+PASS: versionName 3.8.8
+PASS: dialog respects system windows
+PASS: navigation bar inset
+PASS: fixed bottom safety gap
+PASS: button min height 58dp
+PASS: old hidden layout removed
+PASS: Kotlin braces balanced
+
+Android build still requires GitHub Actions confirmation.
