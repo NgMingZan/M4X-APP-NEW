@@ -67,6 +67,13 @@ data class ThemeItem(
     val approvedFileSizeBytes: Long = 0L
 )
 
+data class ThemePurchaseResult(
+    val themeId: String,
+    val balance: Long,
+    val alreadyOwned: Boolean
+)
+
+
 data class ThemeReviewChecklist(
     val previewOk: Boolean = false,
     val downloadOk: Boolean = false,
@@ -669,22 +676,133 @@ class SupabaseApi(private val context: Context) {
         execute(base("${SupabaseConfig.url}/rest/v1/rpc/increment_theme_download", session).post(body.toString().toRequestBody(jsonType)).build())
     }
 
-    suspend fun purchaseTheme(session: Session, themeId: String): Result<Unit> = io {
-        val body = JSONObject().put("theme_id", themeId)
-        execute(base("${SupabaseConfig.url}/rest/v1/rpc/purchase_theme", session).post(body.toString().toRequestBody(jsonType)).build())
+    suspend fun purchaseThemeV2(
+        session: Session,
+        themeId: String
+    ): Result<ThemePurchaseResult> = io {
+        val body = JSONObject().put("target_theme_id", themeId)
+        val request = base(
+            "${SupabaseConfig.url}/rest/v1/rpc/purchase_theme_v2",
+            session
+        ).post(body.toString().toRequestBody(jsonType)).build()
+
+        http.newCall(request).execute().use { response ->
+            val text = response.body?.string().orEmpty()
+            if (!response.isSuccessful) {
+                throw IOException(
+                    error(
+                        text,
+                        "Không thể mua theme (${response.code})"
+                    )
+                )
+            }
+            val o = rpcObject(text)
+            ThemePurchaseResult(
+                themeId = o.optString("theme_id", themeId),
+                balance = o.optLong("balance"),
+                alreadyOwned = o.optBoolean("already_owned")
+            )
+        }
     }
 
-    suspend fun purchasedThemeIds(session: Session): Result<Set<String>> = io {
-        val rows = get(
-            "/rest/v1/theme_purchases?user_id=eq.${session.userId}&select=theme_id",
+    suspend fun ownedThemeIds(
+        session: Session
+    ): Result<Set<String>> = io {
+        val body = "{}".toRequestBody(jsonType)
+        val request = base(
+            "${SupabaseConfig.url}/rest/v1/rpc/get_owned_theme_ids",
             session
-        )
-        val ids = mutableSetOf<String>()
-        repeat(rows.length()) {
-            val themeId = rows.getJSONObject(it).optString("theme_id")
-            if (themeId.isNotBlank()) ids += themeId
+        ).post(body).build()
+
+        http.newCall(request).execute().use { response ->
+            val text = response.body?.string().orEmpty()
+            if (!response.isSuccessful) {
+                throw IOException(
+                    error(
+                        text,
+                        "Không tải được quyền sở hữu theme (${response.code})"
+                    )
+                )
+            }
+            val rows = JSONArray(text)
+            val ids = mutableSetOf<String>()
+            repeat(rows.length()) {
+                val id = rows.getJSONObject(it).optString("theme_id")
+                if (id.isNotBlank()) ids += id
+            }
+            ids
         }
-        ids
+    }
+
+    suspend fun ownedThemes(
+        session: Session
+    ): Result<List<ThemeItem>> = io {
+        val body = "{}".toRequestBody(jsonType)
+        val request = base(
+            "${SupabaseConfig.url}/rest/v1/rpc/get_owned_themes",
+            session
+        ).post(body).build()
+
+        http.newCall(request).execute().use { response ->
+            val text = response.body?.string().orEmpty()
+            if (!response.isSuccessful) {
+                throw IOException(
+                    error(
+                        text,
+                        "Không tải được thư viện theme (${response.code})"
+                    )
+                )
+            }
+            parseThemes(JSONArray(text))
+        }
+    }
+
+    suspend fun creatorUpdateTheme(
+        session: Session,
+        themeId: String,
+        title: String,
+        description: String,
+        category: String,
+        osVersion: String,
+        driveUrl: String,
+        coinPrice: Int
+    ): Result<Unit> = io {
+        require(title.isNotBlank()) {
+            "Tên theme không được để trống"
+        }
+        if (driveUrl.isNotBlank()) {
+            require(driveUrl.startsWith("https://")) {
+                "Link tải phải bắt đầu bằng https://"
+            }
+        }
+
+        val body = JSONObject()
+            .put("target_theme_id", themeId)
+            .put("new_title", title.trim())
+            .put("new_description", description.trim())
+            .put("new_category", category.trim())
+            .put("new_os_version", osVersion.trim())
+            .put("new_drive_url", driveUrl.trim())
+            .put("new_coin_price", coinPrice.coerceAtLeast(0))
+
+        val request = base(
+            "${SupabaseConfig.url}/rest/v1/rpc/creator_update_theme",
+            session
+        ).post(body.toString().toRequestBody(jsonType)).build()
+
+        http.newCall(request).execute().use { response ->
+            val text = response.body?.string().orEmpty()
+            if (!response.isSuccessful) {
+                throw IOException(
+                    error(
+                        text,
+                        "Không thể sửa theme (${response.code})"
+                    )
+                )
+            }
+            rpcObject(text)
+            Unit
+        }
     }
 
     suspend fun activeEvents(session: Session): Result<List<EventItem>> = io {

@@ -591,6 +591,13 @@ private fun M4XApp() {
 
     LaunchedEffect(tab) {
         if (tab != Tab.GAMES) arenaImmersive = false
+        if (tab == Tab.HOME) {
+            session?.let { activeSession ->
+                api.profile(activeSession).onSuccess {
+                    profile = it
+                }
+            }
+        }
     }
 
     val isAdmin = profile?.role in setOf("admin", "super_admin")
@@ -660,6 +667,9 @@ private fun M4XApp() {
                     onOpenFishing = {
                         startGamesInFishing = true
                         tab = Tab.GAMES
+                    },
+                    onCoinChanged = { newBalance ->
+                        profile = profile?.copy(points = newBalance)
                     },
                     onMessage = { message = it }
                 )
@@ -837,6 +847,7 @@ private fun HomeScreen(
     config: RemoteConfig,
     profile: Profile?,
     onOpenFishing: () -> Unit,
+    onCoinChanged: (Long) -> Unit,
     onMessage: (String) -> Unit
 ) {
     val context = LocalContext.current
@@ -854,16 +865,33 @@ private fun HomeScreen(
     }
     var selectedTheme by remember { mutableStateOf<ThemeItem?>(null) }
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(session.userId) {
+        var publicThemes = emptyList<ThemeItem>()
+        var libraryThemes = emptyList<ThemeItem>()
+
         api.approvedThemes(session)
-            .onSuccess { themes = it }
-            .onFailure { onMessage(it.message ?: "Lỗi tải theme") }
-        api.activeEvents(session).onSuccess { events = it }
-        api.purchasedThemeIds(session)
-            .onSuccess { purchasedThemeIds = it }
+            .onSuccess { publicThemes = it }
             .onFailure {
-                onMessage(it.message ?: "Không thể tải thư viện theme đã mua")
+                onMessage(it.message ?: "Lỗi tải theme")
             }
+
+        api.ownedThemes(session)
+            .onSuccess { libraryThemes = it }
+            .onFailure {
+                onMessage(
+                    it.message
+                        ?: "Không thể tải thư viện theme đã mua"
+                )
+            }
+
+        themes = (publicThemes + libraryThemes)
+            .distinctBy { it.id }
+            .sortedByDescending { it.createdAt }
+
+        purchasedThemeIds = libraryThemes
+            .mapTo(mutableSetOf()) { it.id }
+
+        api.activeEvents(session).onSuccess { events = it }
     }
 
     val tabThemes = when (themeTab) {
@@ -901,21 +929,28 @@ private fun HomeScreen(
                     }
 
                     purchasingThemeId = theme.id
-                    api.purchaseTheme(session, theme.id)
-                        .onSuccess {
-                            purchasedThemeIds = purchasedThemeIds + theme.id
-                            coinBalance = (coinBalance - theme.coinPrice)
-                                .coerceAtLeast(0L)
+                    api.purchaseThemeV2(session, theme.id)
+                        .onSuccess { purchase ->
+                            purchasedThemeIds =
+                                purchasedThemeIds + purchase.themeId
+                            coinBalance = purchase.balance
+                            onCoinChanged(purchase.balance)
+
                             onMessage(
-                                if (theme.coinPrice > 0) {
-                                    "Mua theme thành công. Bây giờ bạn có thể tải xuống."
-                                } else {
-                                    "Đã thêm theme miễn phí vào thư viện. Bây giờ bạn có thể tải xuống."
+                                when {
+                                    purchase.alreadyOwned ->
+                                        "Theme đã thuộc thư viện của bạn."
+                                    theme.coinPrice > 0 ->
+                                        "Mua theme thành công. Bây giờ bạn có thể tải xuống."
+                                    else ->
+                                        "Đã thêm theme miễn phí vào thư viện."
                                 }
                             )
                         }
                         .onFailure {
-                            onMessage(it.message ?: "Không thể mua theme")
+                            onMessage(
+                                it.message ?: "Không thể mua theme"
+                            )
                         }
                     purchasingThemeId = null
                 }
@@ -3135,8 +3170,14 @@ private fun ProfileScreen(
     fun reloadMine() {
         scope.launch {
             api.myThemes(session)
-                .onSuccess { mine = it }
-                .onFailure { onMessage(it.message ?: "Không tải được theme của bạn") }
+                .onSuccess {
+                    mine = it
+                }
+                .onFailure {
+                    onMessage(
+                        it.message ?: "Không tải được theme của bạn"
+                    )
+                }
         }
     }
 
@@ -3304,6 +3345,59 @@ private fun ProfileScreen(
             }
         }
 
+        val canManageOwnThemes =
+            profile?.role in setOf(
+                "creator",
+                "admin",
+                "super_admin"
+            )
+        if (canManageOwnThemes && mine.isNotEmpty()) {
+            item {
+                SectionTitle(
+                    "Quản lý theme đã đăng",
+                    "Chỉnh sửa thông tin theme đã đăng và gửi lại chờ duyệt"
+                )
+            }
+            items(
+                mine,
+                key = { "manage-${it.id}" }
+            ) { theme ->
+                CreatorThemeManagerCard(
+                    theme = theme,
+                    onEdit = {
+                            title,
+                            description,
+                            category,
+                            osVersion,
+                            driveUrl,
+                            coinPrice ->
+                        scope.launch {
+                            api.creatorUpdateTheme(
+                                session = session,
+                                themeId = theme.id,
+                                title = title,
+                                description = description,
+                                category = category,
+                                osVersion = osVersion,
+                                driveUrl = driveUrl,
+                                coinPrice = coinPrice
+                            ).onSuccess {
+                                onMessage(
+                                    "Đã lưu thay đổi. Theme được đưa về chờ duyệt."
+                                )
+                                reloadMine()
+                            }.onFailure {
+                                onMessage(
+                                    it.message
+                                        ?: "Không thể sửa theme"
+                                )
+                            }
+                        }
+                    }
+                )
+            }
+        }
+
         item {
             FormCard("Thành tích", Icons.Default.EmojiEvents) {
                 Text("Theme đã đăng: ${mine.size}")
@@ -3429,6 +3523,223 @@ private fun RejectedThemeResubmitCard(
                 }) { Text("Gửi lại xét duyệt") }
             },
             dismissButton = { TextButton(onClick = { editing = false }) { Text("Hủy") } }
+        )
+    }
+}
+
+@Composable
+private fun CreatorThemeManagerCard(
+    theme: ThemeItem,
+    onEdit: (
+        String,
+        String,
+        String,
+        String,
+        String,
+        Int
+    ) -> Unit
+) {
+    var showEdit by remember(theme.id) {
+        mutableStateOf(false)
+    }
+
+    ElevatedCard(
+        shape = RoundedCornerShape(20.dp)
+    ) {
+        Column(
+            Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (theme.previewUrl.isNotBlank()) {
+                    AsyncImage(
+                        model = theme.previewUrl,
+                        contentDescription = theme.title,
+                        modifier = Modifier
+                            .size(72.dp)
+                            .clip(RoundedCornerShape(15.dp)),
+                        contentScale = ContentScale.Crop
+                    )
+                } else {
+                    Surface(
+                        modifier = Modifier.size(72.dp),
+                        shape = RoundedCornerShape(15.dp),
+                        color =
+                            MaterialTheme.colorScheme.surfaceVariant
+                    ) {
+                        Box(
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Default.Palette, null)
+                        }
+                    }
+                }
+
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        theme.title,
+                        fontWeight = FontWeight.Black,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        when (theme.status) {
+                            "approved" -> "Đã duyệt"
+                            "pending" -> "Đang chờ duyệt"
+                            "rejected" -> "Cần sửa"
+                            else -> theme.status
+                        },
+                        color = when (theme.status) {
+                            "approved" -> Color(0xFF18A978)
+                            "rejected" ->
+                                MaterialTheme.colorScheme.error
+                            else ->
+                                MaterialTheme.colorScheme.primary
+                        },
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        "${theme.downloads} lượt tải • ${theme.coinPrice} coin",
+                        style =
+                            MaterialTheme.typography.bodySmall,
+                        color =
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            Button(
+                onClick = { showEdit = true },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(
+                    Icons.Default.Edit,
+                    null,
+                    Modifier.size(18.dp)
+                )
+                Spacer(Modifier.width(7.dp))
+                Text("Chỉnh sửa theme")
+            }
+        }
+    }
+
+    if (showEdit) {
+        var title by remember(theme.id) {
+            mutableStateOf(theme.title)
+        }
+        var description by remember(theme.id) {
+            mutableStateOf(theme.description)
+        }
+        var category by remember(theme.id) {
+            mutableStateOf(theme.category)
+        }
+        var osVersion by remember(theme.id) {
+            mutableStateOf(theme.osVersion)
+        }
+        var driveUrl by remember(theme.id) {
+            mutableStateOf(theme.driveUrl)
+        }
+        var coinPrice by remember(theme.id) {
+            mutableStateOf(theme.coinPrice.toString())
+        }
+
+        AlertDialog(
+            onDismissRequest = { showEdit = false },
+            title = { Text("Chỉnh sửa theme") },
+            text = {
+                Column(
+                    Modifier
+                        .verticalScroll(
+                            rememberScrollState()
+                        ),
+                    verticalArrangement =
+                        Arrangement.spacedBy(10.dp)
+                ) {
+                    Text(
+                        "Sau khi lưu, theme sẽ quay về trạng thái chờ duyệt.",
+                        color =
+                            MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Bold
+                    )
+                    OutlinedTextField(
+                        value = title,
+                        onValueChange = { title = it },
+                        label = { Text("Tên theme") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = description,
+                        onValueChange = {
+                            description = it
+                        },
+                        label = { Text("Mô tả") },
+                        minLines = 3,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = category,
+                        onValueChange = { category = it },
+                        label = { Text("Danh mục") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = osVersion,
+                        onValueChange = { osVersion = it },
+                        label = {
+                            Text("Phiên bản MIUI/HyperOS")
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = driveUrl,
+                        onValueChange = { driveUrl = it },
+                        label = { Text("Link tải/Drive") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = coinPrice,
+                        onValueChange = {
+                            coinPrice =
+                                it.filter(Char::isDigit)
+                        },
+                        label = { Text("Giá M4X Coin") },
+                        keyboardOptions =
+                            KeyboardOptions(
+                                keyboardType =
+                                    KeyboardType.Number
+                            ),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    enabled = title.isNotBlank(),
+                    onClick = {
+                        onEdit(
+                            title,
+                            description,
+                            category,
+                            osVersion,
+                            driveUrl,
+                            coinPrice.toIntOrNull() ?: 0
+                        )
+                        showEdit = false
+                    }
+                ) {
+                    Text("Lưu và gửi duyệt")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { showEdit = false }
+                ) {
+                    Text("Huỷ")
+                }
+            }
         )
     }
 }

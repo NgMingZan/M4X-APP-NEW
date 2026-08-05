@@ -1,0 +1,19 @@
+M4X Theme v3.9.1 validation
+
+PASS: versionCode 69
+PASS: versionName 3.9.1
+PASS: mua theme từ Supabase
+PASS: quyền sở hữu theme
+PASS: đồng bộ Coin về hồ sơ
+PASS: Nhà sáng tạo chỉnh sửa theme
+PASS: màn hình chỉnh sửa theme
+PASS: sửa xong về chờ duyệt
+PASS: không có API xoá theme
+PASS: không có nút Xoá/Ẩn
+PASS: không có logic archived
+PASS: SQL xoá RPC cũ
+PASS: MainActivity cân bằng ngoặc
+PASS: SupabaseApi cân bằng ngoặc
+
+Bắt buộc chạy SQL v3.9.1 trước APK.
+Android build vẫn cần GitHub Actions xác nhận.

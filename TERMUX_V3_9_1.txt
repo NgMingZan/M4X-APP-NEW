@@ -1,0 +1,8 @@
+cd ~/storage/downloads
+unzip -o M4X_V3_9_1_THEME_OWNERSHIP_CREATOR_EDIT_PATCH.zip
+cp -afv M4X_V3_9_1_THEME_OWNERSHIP_CREATOR_EDIT_PATCH/. ~/storage/downloads/M4X-APP-NEW-RUST/
+cd ~/storage/downloads/M4X-APP-NEW-RUST
+git status --short
+git add -A
+git commit -m "Keep theme ownership and creator edit only v3.9.1"
+git push origin main
