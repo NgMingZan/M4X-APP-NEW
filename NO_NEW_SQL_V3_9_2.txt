@@ -1,0 +1,1 @@
+Không cần SQL mới. Chỉ rút gọn giao diện kiểm duyệt Admin.

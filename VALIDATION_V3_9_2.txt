@@ -1,0 +1,16 @@
+M4X Theme v3.9.2 validation
+
+PASS: versionCode 70
+PASS: versionName 3.9.2
+PASS: compact thumbnail
+PASS: compact review button
+PASS: review details in dialog
+PASS: checklist hidden from card
+PASS: safety report preserved
+PASS: approve preserved
+PASS: reject preserved
+PASS: admin edit preserved
+PASS: Kotlin braces balanced
+
+Không cần SQL mới.
+Android build vẫn cần GitHub Actions xác nhận.

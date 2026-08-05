@@ -2736,85 +2736,356 @@ private fun ReviewCard(
     t: ThemeItem,
     onApprove: (ThemeReviewChecklist) -> Unit,
     onReject: (String, ThemeReviewChecklist) -> Unit,
-    onSave: (String, String, String, Int, String, List<Uri>) -> Unit,
+    onSave: (
+        String,
+        String,
+        String,
+        Int,
+        String,
+        List<Uri>
+    ) -> Unit,
     canEdit: Boolean = true
 ) {
-    var editing by remember { mutableStateOf(false) }
-    var showRejectDialog by remember(t.id) { mutableStateOf(false) }
-    var rejectReason by remember(t.id) { mutableStateOf("") }
-    var checklist by remember(t.id) { mutableStateOf(ThemeReviewChecklist()) }
-    var newPreviewUris by remember(t.id) { mutableStateOf<List<Uri>>(emptyList()) }
-    val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) {
+    var editing by remember(t.id) {
+        mutableStateOf(false)
+    }
+    var showReviewDialog by remember(t.id) {
+        mutableStateOf(false)
+    }
+    var showRejectDialog by remember(t.id) {
+        mutableStateOf(false)
+    }
+    var rejectReason by remember(t.id) {
+        mutableStateOf("")
+    }
+    var checklist by remember(t.id) {
+        mutableStateOf(ThemeReviewChecklist())
+    }
+    var newPreviewUris by remember(t.id) {
+        mutableStateOf<List<Uri>>(emptyList())
+    }
+
+    val imagePicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenMultipleDocuments()
+    ) {
         newPreviewUris = it.take(5)
     }
 
-    ElevatedCard(shape = RoundedCornerShape(22.dp)) {
-        Column {
-            if (t.previewUrl.isNotBlank()) {
-                AsyncImage(t.previewUrl, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxWidth().height(150.dp))
-            }
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(t.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
-                Text("${t.status.uppercase()} • ${t.coinPrice} M4X COIN")
+    val checklistDone = listOf(
+        checklist.previewOk,
+        checklist.downloadOk,
+        checklist.compatibilityOk,
+        checklist.safeContent,
+        checklist.notDuplicate
+    ).count { it }
 
-                val validationColor = when (t.clientValidationStatus) {
-                    "passed" -> MaterialTheme.colorScheme.primary
-                    "warning" -> MaterialTheme.colorScheme.tertiary
-                    "failed" -> MaterialTheme.colorScheme.error
-                    else -> MaterialTheme.colorScheme.onSurfaceVariant
+    val validationColor = when (t.clientValidationStatus) {
+        "passed" -> MaterialTheme.colorScheme.primary
+        "warning" -> MaterialTheme.colorScheme.tertiary
+        "failed" -> MaterialTheme.colorScheme.error
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    val validationLabel = when (t.clientValidationStatus) {
+        "passed" -> "Rust đạt"
+        "warning" -> "Có cảnh báo"
+        "failed" -> "Rust từ chối"
+        else -> "Chưa kiểm tra"
+    }
+
+    ElevatedCard(
+        shape = RoundedCornerShape(18.dp)
+    ) {
+        Column(
+            Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (t.previewUrl.isNotBlank()) {
+                    AsyncImage(
+                        model = t.previewUrl,
+                        contentDescription = t.title,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .size(width = 72.dp, height = 88.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                    )
+                } else {
+                    Surface(
+                        modifier = Modifier
+                            .size(width = 72.dp, height = 88.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        color =
+                            MaterialTheme.colorScheme.surfaceVariant
+                    ) {
+                        Box(
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                Icons.Default.Palette,
+                                null
+                            )
+                        }
+                    }
                 }
-                val validationLabel = when (t.clientValidationStatus) {
-                    "passed" -> "Đã qua kiểm tra Rust trên thiết bị"
-                    "warning" -> "Rust phát hiện cảnh báo"
-                    "failed" -> "Rust từ chối file"
-                    else -> "Chưa kiểm tra Rust (có thể là link Drive)"
-                }
-                Text(validationLabel, color = validationColor, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge)
-                if (t.clientValidationMessage.isNotBlank()) Text(t.clientValidationMessage, style = MaterialTheme.typography.bodySmall)
-                if (t.clientFileSizeBytes > 0L) {
-                    val sizeMb = t.clientFileSizeBytes.toDouble() / 1024.0 / 1024.0
+
+                Spacer(Modifier.width(12.dp))
+
+                Column(
+                    Modifier.weight(1f),
+                    verticalArrangement =
+                        Arrangement.spacedBy(3.dp)
+                ) {
                     Text(
-                        "Dung lượng: ${java.lang.String.format(java.util.Locale.US, "%.2f", sizeMb)} MB" +
-                            if (t.clientFileSha256.isNotBlank()) " • SHA-256: ${t.clientFileSha256.take(12)}…" else "",
-                        style = MaterialTheme.typography.labelSmall
+                        t.title,
+                        fontWeight = FontWeight.Black,
+                        style =
+                            MaterialTheme.typography.titleMedium,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        "${t.status.uppercase()} • ${t.coinPrice} COIN",
+                        style =
+                            MaterialTheme.typography.labelMedium,
+                        color =
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        validationLabel,
+                        color = validationColor,
+                        fontWeight = FontWeight.Bold,
+                        style =
+                            MaterialTheme.typography.labelMedium
+                    )
+                    Text(
+                        if (t.clientSafetyScore > 0) {
+                            "An toàn ${t.clientSafetyScore}/100 • Checklist $checklistDone/5"
+                        } else {
+                            "Chưa có báo cáo • Checklist $checklistDone/5"
+                        },
+                        style =
+                            MaterialTheme.typography.bodySmall,
+                        color =
+                            MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
 
-                AdminSafetyReport(t)
-                Text("Checklist bắt buộc trước khi duyệt", fontWeight = FontWeight.Black)
-                ReviewChecklistRow("Ảnh xem trước đầy đủ, rõ ràng", checklist.previewOk) { checklist = checklist.copy(previewOk = it) }
-                ReviewChecklistRow("Link tải hoặc file hoạt động", checklist.downloadOk) { checklist = checklist.copy(downloadOk = it) }
-                ReviewChecklistRow("Đúng phiên bản MIUI/HyperOS", checklist.compatibilityOk) { checklist = checklist.copy(compatibilityOk = it) }
-                ReviewChecklistRow("Không chứa nội dung vi phạm", checklist.safeContent) { checklist = checklist.copy(safeContent = it) }
-                ReviewChecklistRow("Không trùng theme đã có", checklist.notDuplicate) { checklist = checklist.copy(notDuplicate = it) }
-
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(
-                        onClick = { onApprove(checklist) },
-                        enabled = checklist.completed &&
-                            t.clientValidationStatus != "failed" &&
-                            (t.clientSafetyScore == 0 || t.clientSafetyScore >= 60),
-                        modifier = Modifier.weight(1f)
-                    ) { Text("Duyệt") }
-                    OutlinedButton(onClick = { showRejectDialog = true }, modifier = Modifier.weight(1f)) { Text("Từ chối") }
-                    if (canEdit) IconButton(onClick = { editing = true }) { Icon(Icons.Default.Edit, "Sửa") }
+                if (canEdit) {
+                    IconButton(
+                        onClick = { editing = true }
+                    ) {
+                        Icon(
+                            Icons.Default.Edit,
+                            "Sửa theme"
+                        )
+                    }
                 }
+            }
+
+            Button(
+                onClick = { showReviewDialog = true },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(14.dp)
+            ) {
+                Icon(
+                    Icons.Default.FactCheck,
+                    null,
+                    Modifier.size(18.dp)
+                )
+                Spacer(Modifier.width(7.dp))
+                Text("Kiểm duyệt")
             }
         }
     }
 
+    if (showReviewDialog) {
+        AlertDialog(
+            onDismissRequest = {
+                showReviewDialog = false
+            },
+            title = {
+                Column {
+                    Text(
+                        t.title,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        "${t.coinPrice} M4X COIN • $validationLabel",
+                        style =
+                            MaterialTheme.typography.bodySmall,
+                        color = validationColor
+                    )
+                }
+            },
+            text = {
+                Column(
+                    Modifier.verticalScroll(
+                        rememberScrollState()
+                    ),
+                    verticalArrangement =
+                        Arrangement.spacedBy(10.dp)
+                ) {
+                    if (t.previewUrl.isNotBlank()) {
+                        AsyncImage(
+                            model = t.previewUrl,
+                            contentDescription = t.title,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(150.dp)
+                                .clip(
+                                    RoundedCornerShape(16.dp)
+                                )
+                        )
+                    }
+
+                    if (
+                        t.clientValidationMessage.isNotBlank()
+                    ) {
+                        Text(
+                            t.clientValidationMessage,
+                            style =
+                                MaterialTheme.typography.bodySmall
+                        )
+                    }
+
+                    if (t.clientFileSizeBytes > 0L) {
+                        val sizeMb =
+                            t.clientFileSizeBytes.toDouble() /
+                                1024.0 /
+                                1024.0
+                        Text(
+                            "Dung lượng: ${
+                                java.lang.String.format(
+                                    java.util.Locale.US,
+                                    "%.2f",
+                                    sizeMb
+                                )
+                            } MB",
+                            style =
+                                MaterialTheme.typography.labelSmall
+                        )
+                    }
+
+                    AdminSafetyReport(t)
+
+                    Text(
+                        "Checklist $checklistDone/5",
+                        fontWeight = FontWeight.Black
+                    )
+                    ReviewChecklistRow(
+                        "Ảnh xem trước đầy đủ",
+                        checklist.previewOk
+                    ) {
+                        checklist =
+                            checklist.copy(previewOk = it)
+                    }
+                    ReviewChecklistRow(
+                        "Link tải/file hoạt động",
+                        checklist.downloadOk
+                    ) {
+                        checklist =
+                            checklist.copy(downloadOk = it)
+                    }
+                    ReviewChecklistRow(
+                        "Đúng MIUI/HyperOS",
+                        checklist.compatibilityOk
+                    ) {
+                        checklist =
+                            checklist.copy(
+                                compatibilityOk = it
+                            )
+                    }
+                    ReviewChecklistRow(
+                        "Không chứa nội dung vi phạm",
+                        checklist.safeContent
+                    ) {
+                        checklist =
+                            checklist.copy(safeContent = it)
+                    }
+                    ReviewChecklistRow(
+                        "Không trùng theme",
+                        checklist.notDuplicate
+                    ) {
+                        checklist =
+                            checklist.copy(notDuplicate = it)
+                    }
+                }
+            },
+            confirmButton = {
+                Row(
+                    horizontalArrangement =
+                        Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = {
+                            showReviewDialog = false
+                            showRejectDialog = true
+                        }
+                    ) {
+                        Text("Từ chối")
+                    }
+                    Button(
+                        onClick = {
+                            showReviewDialog = false
+                            onApprove(checklist)
+                        },
+                        enabled =
+                            checklist.completed &&
+                                t.clientValidationStatus !=
+                                "failed" &&
+                                (
+                                    t.clientSafetyScore == 0 ||
+                                        t.clientSafetyScore >= 60
+                                    )
+                    ) {
+                        Text("Duyệt")
+                    }
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        showReviewDialog = false
+                    }
+                ) {
+                    Text("Đóng")
+                }
+            }
+        )
+    }
+
     if (showRejectDialog) {
         AlertDialog(
-            onDismissRequest = { showRejectDialog = false },
-            icon = { Icon(Icons.Default.ReportProblem, null) },
+            onDismissRequest = {
+                showRejectDialog = false
+            },
+            icon = {
+                Icon(
+                    Icons.Default.ReportProblem,
+                    null
+                )
+            },
             title = { Text("Lý do từ chối") },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("Người đăng sẽ nhận thông báo này và có thể sửa để gửi lại.")
+                Column(
+                    verticalArrangement =
+                        Arrangement.spacedBy(10.dp)
+                ) {
+                    Text(
+                        "Người đăng sẽ nhận lý do này và có thể sửa để gửi lại."
+                    )
                     OutlinedTextField(
                         value = rejectReason,
-                        onValueChange = { rejectReason = it.take(500) },
-                        label = { Text("Nội dung cần sửa") },
+                        onValueChange = {
+                            rejectReason = it.take(500)
+                        },
+                        label = {
+                            Text("Nội dung cần sửa")
+                        },
                         minLines = 3,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -2822,62 +3093,221 @@ private fun ReviewCard(
             },
             confirmButton = {
                 Button(
-                    enabled = rejectReason.trim().length >= 5,
+                    enabled =
+                        rejectReason.trim().length >= 5,
                     onClick = {
-                        onReject(rejectReason.trim(), checklist)
+                        onReject(
+                            rejectReason.trim(),
+                            checklist
+                        )
                         rejectReason = ""
                         showRejectDialog = false
                     }
-                ) { Text("Xác nhận từ chối") }
+                ) {
+                    Text("Xác nhận")
+                }
             },
-            dismissButton = { TextButton(onClick = { showRejectDialog = false }) { Text("Hủy") } }
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        showRejectDialog = false
+                    }
+                ) {
+                    Text("Huỷ")
+                }
+            }
         )
     }
 
     if (editing && canEdit) {
-        var title by remember(t.id) { mutableStateOf(t.title) }
-        var desc by remember(t.id) { mutableStateOf(t.description) }
-        var drive by remember(t.id) { mutableStateOf(t.driveUrl) }
-        var price by remember(t.id) { mutableStateOf(t.coinPrice.toString()) }
-        var status by remember(t.id) { mutableStateOf(t.status) }
+        var title by remember(t.id) {
+            mutableStateOf(t.title)
+        }
+        var desc by remember(t.id) {
+            mutableStateOf(t.description)
+        }
+        var drive by remember(t.id) {
+            mutableStateOf(t.driveUrl)
+        }
+        var price by remember(t.id) {
+            mutableStateOf(t.coinPrice.toString())
+        }
+        var status by remember(t.id) {
+            mutableStateOf(t.status)
+        }
 
         AlertDialog(
-            onDismissRequest = { editing = false },
+            onDismissRequest = {
+                editing = false
+            },
             title = { Text("Sửa theme") },
             text = {
-                Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    OutlinedTextField(title, { title = it }, label = { Text("Tên theme") })
-                    OutlinedTextField(desc, { desc = it }, label = { Text("Mô tả") })
-                    OutlinedTextField(drive, { drive = it }, label = { Text("Link Drive") })
-                    OutlinedTextField(price, { price = it.filter(Char::isDigit) }, label = { Text("Giá M4X COIN") })
-                    Text("Ảnh hiện tại", fontWeight = FontWeight.Bold)
-                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        val currentImages = if (t.previewUrls.isNotEmpty()) t.previewUrls else listOfNotNull(t.previewUrl.takeIf { it.isNotBlank() })
+                Column(
+                    Modifier.verticalScroll(
+                        rememberScrollState()
+                    ),
+                    verticalArrangement =
+                        Arrangement.spacedBy(10.dp)
+                ) {
+                    OutlinedTextField(
+                        title,
+                        { title = it },
+                        label = { Text("Tên theme") }
+                    )
+                    OutlinedTextField(
+                        desc,
+                        { desc = it },
+                        label = { Text("Mô tả") }
+                    )
+                    OutlinedTextField(
+                        drive,
+                        { drive = it },
+                        label = { Text("Link Drive") }
+                    )
+                    OutlinedTextField(
+                        price,
+                        {
+                            price =
+                                it.filter(Char::isDigit)
+                        },
+                        label = {
+                            Text("Giá M4X COIN")
+                        }
+                    )
+
+                    Text(
+                        "Ảnh hiện tại",
+                        fontWeight = FontWeight.Bold
+                    )
+                    Row(
+                        Modifier.horizontalScroll(
+                            rememberScrollState()
+                        ),
+                        horizontalArrangement =
+                            Arrangement.spacedBy(8.dp)
+                    ) {
+                        val currentImages =
+                            if (t.previewUrls.isNotEmpty()) {
+                                t.previewUrls
+                            } else {
+                                listOfNotNull(
+                                    t.previewUrl.takeIf {
+                                        it.isNotBlank()
+                                    }
+                                )
+                            }
+
                         currentImages.forEach { url ->
-                            AsyncImage(url, null, contentScale = ContentScale.Crop, modifier = Modifier.size(82.dp).clip(RoundedCornerShape(14.dp)))
+                            AsyncImage(
+                                model = url,
+                                contentDescription = null,
+                                contentScale =
+                                    ContentScale.Crop,
+                                modifier = Modifier
+                                    .size(82.dp)
+                                    .clip(
+                                        RoundedCornerShape(
+                                            14.dp
+                                        )
+                                    )
+                            )
                         }
                     }
-                    OutlinedButton(onClick = { imagePicker.launch(arrayOf("image/*")) }, modifier = Modifier.fillMaxWidth()) {
-                        Icon(Icons.Default.PhotoLibrary, null); Text(" Thay ảnh xem trước (${newPreviewUris.size}/5)")
+
+                    OutlinedButton(
+                        onClick = {
+                            imagePicker.launch(
+                                arrayOf("image/*")
+                            )
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(
+                            Icons.Default.PhotoLibrary,
+                            null
+                        )
+                        Text(
+                            " Thay ảnh (${newPreviewUris.size}/5)"
+                        )
                     }
+
                     if (newPreviewUris.isNotEmpty()) {
-                        Text("Ảnh mới sẽ thay toàn bộ ảnh cũ", color = MaterialTheme.colorScheme.secondary)
-                        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            newPreviewUris.forEach { uri -> AsyncImage(uri, null, contentScale = ContentScale.Crop, modifier = Modifier.size(82.dp).clip(RoundedCornerShape(14.dp))) }
+                        Text(
+                            "Ảnh mới sẽ thay toàn bộ ảnh cũ",
+                            color =
+                                MaterialTheme.colorScheme.secondary
+                        )
+                        Row(
+                            Modifier.horizontalScroll(
+                                rememberScrollState()
+                            ),
+                            horizontalArrangement =
+                                Arrangement.spacedBy(8.dp)
+                        ) {
+                            newPreviewUris.forEach { uri ->
+                                AsyncImage(
+                                    model = uri,
+                                    contentDescription = null,
+                                    contentScale =
+                                        ContentScale.Crop,
+                                    modifier = Modifier
+                                        .size(82.dp)
+                                        .clip(
+                                            RoundedCornerShape(
+                                                14.dp
+                                            )
+                                        )
+                                )
+                            }
                         }
                     }
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        listOf("pending", "approved", "rejected").forEach { st -> FilterChip(selected = status == st, onClick = { status = st }, label = { Text(st) }) }
+
+                    Row(
+                        horizontalArrangement =
+                            Arrangement.spacedBy(6.dp)
+                    ) {
+                        listOf(
+                            "pending",
+                            "approved",
+                            "rejected"
+                        ).forEach { st ->
+                            FilterChip(
+                                selected = status == st,
+                                onClick = { status = st },
+                                label = { Text(st) }
+                            )
+                        }
                     }
                 }
             },
             confirmButton = {
-                TextButton(onClick = {
-                    onSave(title, desc, drive, price.toIntOrNull() ?: 0, status, newPreviewUris)
-                    newPreviewUris = emptyList(); editing = false
-                }) { Text("Lưu online") }
+                TextButton(
+                    onClick = {
+                        onSave(
+                            title,
+                            desc,
+                            drive,
+                            price.toIntOrNull() ?: 0,
+                            status,
+                            newPreviewUris
+                        )
+                        newPreviewUris = emptyList()
+                        editing = false
+                    }
+                ) {
+                    Text("Lưu online")
+                }
             },
-            dismissButton = { TextButton(onClick = { newPreviewUris = emptyList(); editing = false }) { Text("Hủy") } }
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        newPreviewUris = emptyList()
+                        editing = false
+                    }
+                ) {
+                    Text("Huỷ")
+                }
+            }
         )
     }
 }

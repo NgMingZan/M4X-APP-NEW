@@ -1,9 +1,9 @@
 {
-  "versionCode": 69,
-  "versionName": "3.9.1",
+  "versionCode": 70,
+  "versionName": "3.9.2",
   "apkUrl": "https://github.com/NgMingZan/M4X-APP-NEW/releases/latest/download/M4X-Theme.apk",
-  "title": "M4X Theme v3.9.1 — Sở hữu Theme và chỉnh sửa Theme",
-  "message": "Giữ trạng thái Đã sở hữu khi chuyển dịch vụ, đồng bộ Coin trực tiếp từ Supabase, cho phép tải lại theme đã mua và cho Nhà sáng tạo chỉnh sửa theme đã đăng rồi gửi lại chờ duyệt.",
+  "title": "M4X Theme v3.9.2 — Admin duyệt Theme gọn hơn",
+  "message": "Rút gọn danh sách kiểm duyệt của Admin: mỗi theme chỉ hiện ảnh nhỏ, tên, giá, trạng thái an toàn và nút Kiểm duyệt. Checklist và báo cáo chi tiết chỉ mở khi cần.",
   "forceUpdate": false,
-  "notes": "Bắt buộc chạy SQL v3.9.1. Không có chức năng xoá, ẩn hoặc ngừng bán theme."
+  "notes": "Không cần SQL mới. Đây là cập nhật giao diện Admin."
 }
