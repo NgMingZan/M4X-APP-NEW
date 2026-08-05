@@ -1,9 +1,9 @@
 {
-  "versionCode": 57,
-  "versionName": "3.6.4",
+  "versionCode": 59,
+  "versionName": "3.8.0",
   "apkUrl": "https://github.com/NgMingZan/M4X-APP-NEW/releases/latest/download/M4X-Theme.apk",
-  "title": "M4X Theme v3.6.4 — Arena Realtime 401 Fix",
-  "message": "Sửa lỗi M4X Arena vào trận báo Expected HTTP 101 response but was 401 Unauthorized.",
+  "title": "M4X Theme v3.8.0 — Kiểm duyệt nâng cao",
+  "message": "Thêm checklist bắt buộc, lịch sử duyệt và thu hồi, điểm uy tín Nhà sáng tạo, thông báo trực tiếp và sửa/gửi lại theme.",
   "forceUpdate": false,
-  "notes": "Giữ Supabase Fishing v3.5.0. Không cần SQL mới nếu hai file SQL Fishing đã chạy thành công."
+  "notes": "BẮT BUỘC chạy SUPABASE_V3_8_0_REVIEW_SYSTEM.sql sau SQL v3.7.0."
 }

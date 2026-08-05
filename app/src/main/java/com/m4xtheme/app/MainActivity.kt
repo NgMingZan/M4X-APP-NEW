@@ -520,6 +520,8 @@ private fun M4XApp() {
     var updateProgress by remember { mutableIntStateOf(-1) }
     var arenaImmersive by remember { mutableStateOf(false) }
     var startGamesInFishing by remember { mutableStateOf(false) }
+    var reviewNotifications by remember { mutableStateOf<List<ThemeReviewNotification>>(emptyList()) }
+    var showReviewNotifications by remember { mutableStateOf(false) }
     val snack = remember { SnackbarHostState() }
     val appScope = rememberCoroutineScope()
     fun checkUpdate(showNoUpdate: Boolean = false) {
@@ -558,6 +560,14 @@ private fun M4XApp() {
         }
     }
 
+    LaunchedEffect(session?.userId) {
+        val s = session ?: return@LaunchedEffect
+        while (true) {
+            api.themeReviewNotifications(s).onSuccess { reviewNotifications = it }
+            delay(60_000L)
+        }
+    }
+
     if (session == null) {
         AuthScreen(api, onSuccess = { api.saveSession(it); session = it }, onMessage = { message = it })
         return
@@ -578,6 +588,8 @@ private fun M4XApp() {
     }
 
     val isAdmin = profile?.role in setOf("admin", "super_admin")
+    val isCreator = profile?.role == "creator"
+    val canOpenControlCenter = isAdmin || isCreator
     Scaffold(
         contentWindowInsets = if (arenaImmersive) {
             WindowInsets(0, 0, 0, 0)
@@ -599,7 +611,20 @@ private fun M4XApp() {
                     }
                 },
                 actions = {
-                    if (isAdmin) IconButton(onClick = { tab = Tab.ADMIN }) { Icon(Icons.Default.AdminPanelSettings, "Admin") }
+                    IconButton(onClick = {
+                        showReviewNotifications = true
+                        appScope.launch {
+                            api.themeReviewNotifications(session!!).onSuccess { reviewNotifications = it }
+                        }
+                    }) {
+                        BadgedBox(
+                            badge = {
+                                val unread = reviewNotifications.count { it.readAt.isBlank() }
+                                if (unread > 0) Badge { Text(unread.coerceAtMost(99).toString()) }
+                            }
+                        ) { Icon(Icons.Default.Notifications, "Thông báo theme") }
+                    }
+                    if (canOpenControlCenter) IconButton(onClick = { tab = Tab.ADMIN }) { Icon(Icons.Default.AdminPanelSettings, if (isCreator) "Duyệt theme" else "Admin") }
                     IconButton(onClick = { message = "Bạn đang có ${profile?.points ?: 0} M4X COIN" }) { Icon(Icons.Default.Paid, "M4X COIN", tint = Color(0xFFFFC857)) }
                 }
             )
@@ -640,7 +665,7 @@ private fun M4XApp() {
                     session = session!!,
                     profile = profile,
                     config = config,
-                    isAdmin = isAdmin,
+                    isAdmin = canOpenControlCenter,
                     checkingUpdate = checkingUpdate,
                     availableUpdate = availableUpdate,
                     onCheckUpdate = { checkUpdate(true) },
@@ -694,6 +719,24 @@ private fun M4XApp() {
                 ) { Icon(Icons.Default.Inventory2, "Rương Airdrop") }
             }
         }
+    }
+
+    if (showReviewNotifications) {
+        ThemeReviewNotificationsDialog(
+            notifications = reviewNotifications,
+            onDismiss = { showReviewNotifications = false },
+            onMarkAllRead = {
+                appScope.launch {
+                    api.markAllThemeNotificationsRead(session!!)
+                        .onSuccess {
+                            reviewNotifications = reviewNotifications.map {
+                                if (it.readAt.isBlank()) it.copy(readAt = "read") else it
+                            }
+                        }
+                        .onFailure { message = it.message ?: "Không thể đánh dấu đã đọc" }
+                }
+            }
+        )
     }
 
     availableUpdate?.let { update ->
@@ -1580,21 +1623,178 @@ private fun FullscreenWebViewer(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun AdminScreen(api: SupabaseApi, session: Session, profile: Profile?, config: RemoteConfig, onConfigChanged: (RemoteConfig) -> Unit, onMessage: (String) -> Unit) {
-    val scope = rememberCoroutineScope(); var selected by remember { mutableIntStateOf(0) }; var pending by remember { mutableStateOf<List<ThemeItem>>(emptyList()) }; var allThemes by remember { mutableStateOf<List<ThemeItem>>(emptyList()) }; var users by remember { mutableStateOf<List<Profile>>(emptyList()) }; var events by remember { mutableStateOf<List<EventItem>>(emptyList()) }
-    fun reload() { scope.launch { api.pendingThemes(session).onSuccess { pending = it }; api.allThemes(session).onSuccess { allThemes = it }; api.users(session).onSuccess { users = it }; api.allEvents(session).onSuccess { events = it } } }
-    LaunchedEffect(Unit) { reload() }
+    val scope = rememberCoroutineScope()
+    val isCreator = profile?.role == "creator"
+    val isAdmin = profile?.role in setOf("admin", "super_admin")
+    val isSuperAdmin = profile?.role == "super_admin"
+    var selected by remember { mutableIntStateOf(0) }
+    var pending by remember { mutableStateOf<List<ThemeItem>>(emptyList()) }
+    var allThemes by remember { mutableStateOf<List<ThemeItem>>(emptyList()) }
+    var users by remember { mutableStateOf<List<Profile>>(emptyList()) }
+    var events by remember { mutableStateOf<List<EventItem>>(emptyList()) }
+    var history by remember { mutableStateOf<List<ThemeReviewHistory>>(emptyList()) }
+    var reputation by remember { mutableStateOf<CreatorReputation?>(null) }
+    var reputations by remember { mutableStateOf<List<CreatorReputation>>(emptyList()) }
+
+    fun reload() {
+        scope.launch {
+            api.pendingThemes(session)
+                .onSuccess { pending = it }
+                .onFailure { onMessage(it.message ?: "Không tải được theme chờ duyệt") }
+            api.themeReviewHistory(session).onSuccess { history = it }
+            if (isCreator) api.creatorReputation(session).onSuccess { reputation = it }
+            if (isAdmin) {
+                api.allThemes(session).onSuccess { allThemes = it }
+                api.users(session).onSuccess { users = it }
+                api.creatorReputations(session).onSuccess { reputations = it }
+                api.allEvents(session).onSuccess { events = it }
+            }
+        }
+    }
+
+    LaunchedEffect(profile?.role) { reload() }
+
+    if (!isCreator && !isAdmin) {
+        EmptyState("Không có quyền truy cập", "Trung tâm này chỉ dành cho Nhà sáng tạo và Admin")
+        return
+    }
+
     Column(Modifier.fillMaxSize()) {
-        LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            item { SectionTitle("Trung tâm điều hành", "Quản lý toàn bộ M4X Universe") }
-            item { Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) { AdminMetric("Chờ duyệt", pending.size, Icons.Default.PendingActions, Modifier.weight(1f)); AdminMetric("Người dùng", users.size, Icons.Default.Groups, Modifier.weight(1f)); AdminMetric("Sự kiện", events.size, Icons.Default.Celebration, Modifier.weight(1f)) } }
-            item { Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) { listOf("Tổng quan", "Theme", "Sự kiện", "Giftcode", "Người dùng", "M4X WEB").forEachIndexed { i, s -> FilterChip(selected = selected == i, onClick = { selected = i }, label = { Text(s) }) } } }
-            when (selected) {
-                0 -> item { FormCard("Công cụ nhanh", Icons.Default.Dashboard) { AdminAction("Phát hành Airdrop", Icons.Default.RocketLaunch) { scope.launch { api.createAirdrop(session).onSuccess { onMessage("Đã phát hành Airdrop") }.onFailure { onMessage(it.message ?: "Lỗi") } } }; AdminAction("Tuần sinh nhật Admin 01/08–07/08", Icons.Default.Cake) { scope.launch { api.publishBirthdayWeek(session).onSuccess { onMessage("Đã phát hành tuần sinh nhật") }.onFailure { onMessage(it.message ?: "Lỗi") } } }; AdminAction("Mở Boss cộng đồng", Icons.Default.SportsEsports) { onMessage("Boss cộng đồng đã được xếp lịch online") } } }
-                1 -> if (allThemes.isEmpty()) item { EmptyState("Chưa có theme", "Theme người dùng đăng sẽ xuất hiện tại đây") } else items(allThemes, key = { it.id }) { t -> ReviewCard(t, onApprove = { scope.launch { api.reviewTheme(session, t.id, true).onSuccess { reload() } } }, onReject = { scope.launch { api.reviewTheme(session, t.id, false, "Cần bổ sung nội dung").onSuccess { reload() } } }, onSave = { title, desc, drive, price, status, previewUris -> scope.launch { api.updateThemeByAdmin(session, t.id, title, desc, drive, price, status, previewUris).onSuccess { onMessage("Đã cập nhật theme online"); reload() }.onFailure { onMessage(it.message ?: "Không thể sửa theme") } } }) }
-                2 -> { item { AdminCreateEvent(api, session, onMessage) }; items(events) { EventBanner(it) } }
-                3 -> item { AdminGiftCode(api, session, onMessage) }
-                4 -> items(users, key = { it.id }) { u -> UserAdminRow(u, profile?.role == "super_admin") { scope.launch { api.setRole(session, u.id, if (u.role == "admin") "user" else "admin").onSuccess { reload() }.onFailure { onMessage(it.message ?: "Lỗi") } } } }
-                5 -> item { AdminWebSettings(api, session, config, onSaved = onConfigChanged, onMessage = onMessage) }
+        LazyColumn(
+            Modifier.weight(1f),
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            if (isCreator) {
+                item { SectionTitle("Trung tâm Nhà sáng tạo", "Kiểm duyệt có checklist và điểm uy tín") }
+                item {
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        AdminMetric("Chờ duyệt", pending.size, Icons.Default.PendingActions, Modifier.weight(1f))
+                        AdminMetric("Uy tín", reputation?.score ?: 50, Icons.Default.WorkspacePremium, Modifier.weight(1f))
+                        AdminMetric("Đã duyệt", reputation?.totalReviews ?: 0, Icons.Default.FactCheck, Modifier.weight(1f))
+                    }
+                }
+                item { CreatorReputationCard(reputation) }
+                item {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(selected = selected == 0, onClick = { selected = 0 }, label = { Text("Chờ duyệt") })
+                        FilterChip(selected = selected == 1, onClick = { selected = 1 }, label = { Text("Lịch sử của tôi") })
+                    }
+                }
+                if (selected == 0) {
+                    if (pending.isEmpty()) item { EmptyState("Không có theme chờ duyệt", "Theme mới sẽ xuất hiện tại đây") }
+                    else items(pending, key = { it.id }) { theme ->
+                        ReviewCard(
+                            t = theme,
+                            canEdit = false,
+                            onApprove = { checklist ->
+                                scope.launch {
+                                    api.reviewTheme(session, theme.id, true, checklist = checklist)
+                                        .onSuccess { onMessage("Đã duyệt ${theme.title}"); reload() }
+                                        .onFailure { onMessage(it.message ?: "Không thể duyệt theme") }
+                                }
+                            },
+                            onReject = { reason, checklist ->
+                                scope.launch {
+                                    api.reviewTheme(session, theme.id, false, reason, checklist)
+                                        .onSuccess { onMessage("Đã từ chối ${theme.title}"); reload() }
+                                        .onFailure { onMessage(it.message ?: "Không thể từ chối theme") }
+                                }
+                            },
+                            onSave = { _, _, _, _, _, _ -> }
+                        )
+                    }
+                } else {
+                    if (history.isEmpty()) item { EmptyState("Chưa có lịch sử", "Các lượt kiểm duyệt của bạn sẽ hiện tại đây") }
+                    else items(history, key = { it.id }) { review ->
+                        ReviewHistoryCard(review, canRevoke = false, onRevoke = {})
+                    }
+                }
+            } else {
+                item { SectionTitle("Trung tâm điều hành", "Quản lý toàn bộ M4X Universe") }
+                item {
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        AdminMetric("Chờ duyệt", pending.size, Icons.Default.PendingActions, Modifier.weight(1f))
+                        AdminMetric("Người dùng", users.size, Icons.Default.Groups, Modifier.weight(1f))
+                        AdminMetric("Lịch sử", history.size, Icons.Default.History, Modifier.weight(1f))
+                    }
+                }
+                item {
+                    Row(
+                        Modifier.horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        listOf("Tổng quan", "Theme", "Lịch sử duyệt", "Sự kiện", "Giftcode", "Người dùng", "M4X WEB").forEachIndexed { i, label ->
+                            FilterChip(selected = selected == i, onClick = { selected = i }, label = { Text(label) })
+                        }
+                    }
+                }
+                when (selected) {
+                    0 -> item {
+                        FormCard("Công cụ nhanh", Icons.Default.Dashboard) {
+                            AdminAction("Phát hành Airdrop", Icons.Default.RocketLaunch) {
+                                scope.launch { api.createAirdrop(session).onSuccess { onMessage("Đã phát hành Airdrop") }.onFailure { onMessage(it.message ?: "Lỗi") } }
+                            }
+                            AdminAction("Tuần sinh nhật Admin 01/08–07/08", Icons.Default.Cake) {
+                                scope.launch { api.publishBirthdayWeek(session).onSuccess { onMessage("Đã phát hành tuần sinh nhật") }.onFailure { onMessage(it.message ?: "Lỗi") } }
+                            }
+                            AdminAction("Mở Boss cộng đồng", Icons.Default.SportsEsports) { onMessage("Boss cộng đồng đã được xếp lịch online") }
+                        }
+                    }
+                    1 -> if (allThemes.isEmpty()) item { EmptyState("Chưa có theme", "Theme người dùng đăng sẽ xuất hiện tại đây") }
+                    else items(allThemes, key = { it.id }) { theme ->
+                        ReviewCard(
+                            t = theme,
+                            onApprove = { checklist ->
+                                scope.launch { api.reviewTheme(session, theme.id, true, checklist = checklist).onSuccess { reload() }.onFailure { onMessage(it.message ?: "Không thể duyệt theme") } }
+                            },
+                            onReject = { reason, checklist ->
+                                scope.launch { api.reviewTheme(session, theme.id, false, reason, checklist).onSuccess { reload() }.onFailure { onMessage(it.message ?: "Không thể từ chối theme") } }
+                            },
+                            onSave = { title, desc, drive, price, status, previewUris ->
+                                scope.launch {
+                                    api.updateThemeByAdmin(session, theme.id, title, desc, drive, price, status, previewUris)
+                                        .onSuccess { onMessage("Đã cập nhật theme online"); reload() }
+                                        .onFailure { onMessage(it.message ?: "Không thể sửa theme") }
+                                }
+                            }
+                        )
+                    }
+                    2 -> if (history.isEmpty()) item { EmptyState("Chưa có lịch sử", "Các lượt duyệt sẽ xuất hiện tại đây") }
+                    else items(history, key = { it.id }) { review ->
+                        ReviewHistoryCard(
+                            review = review,
+                            canRevoke = isSuperAdmin && review.decision == "approved",
+                            onRevoke = { reason ->
+                                scope.launch {
+                                    api.revokeThemeApproval(session, review.themeId, reason)
+                                        .onSuccess { onMessage("Đã thu hồi ${review.themeTitle}"); reload() }
+                                        .onFailure { onMessage(it.message ?: "Không thể thu hồi theme") }
+                                }
+                            }
+                        )
+                    }
+                    3 -> {
+                        item { AdminCreateEvent(api, session, onMessage) }
+                        items(events) { EventBanner(it) }
+                    }
+                    4 -> item { AdminGiftCode(api, session, onMessage) }
+                    5 -> items(users, key = { it.id }) { user ->
+                        UserAdminRow(
+                            u = user,
+                            reputation = reputations.firstOrNull { it.userId == user.id },
+                            canEdit = isSuperAdmin,
+                            onRoleChange = { newRole ->
+                                scope.launch {
+                                    api.setRole(session, user.id, newRole)
+                                        .onSuccess { onMessage("Đã đổi quyền ${user.displayName.ifBlank { user.username }} thành $newRole"); reload() }
+                                        .onFailure { onMessage(it.message ?: "Không thể đổi quyền") }
+                                }
+                            }
+                        )
+                    }
+                    6 -> item { AdminWebSettings(api, session, config, onSaved = onConfigChanged, onMessage = onMessage) }
+                }
             }
         }
     }
@@ -1795,11 +1995,15 @@ private fun AdminSafetyReport(t: ThemeItem) {
 @Composable
 private fun ReviewCard(
     t: ThemeItem,
-    onApprove: () -> Unit,
-    onReject: () -> Unit,
-    onSave: (String, String, String, Int, String, List<Uri>) -> Unit
+    onApprove: (ThemeReviewChecklist) -> Unit,
+    onReject: (String, ThemeReviewChecklist) -> Unit,
+    onSave: (String, String, String, Int, String, List<Uri>) -> Unit,
+    canEdit: Boolean = true
 ) {
     var editing by remember { mutableStateOf(false) }
+    var showRejectDialog by remember(t.id) { mutableStateOf(false) }
+    var rejectReason by remember(t.id) { mutableStateOf("") }
+    var checklist by remember(t.id) { mutableStateOf(ThemeReviewChecklist()) }
     var newPreviewUris by remember(t.id) { mutableStateOf<List<Uri>>(emptyList()) }
     val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) {
         newPreviewUris = it.take(5)
@@ -1808,12 +2012,7 @@ private fun ReviewCard(
     ElevatedCard(shape = RoundedCornerShape(22.dp)) {
         Column {
             if (t.previewUrl.isNotBlank()) {
-                AsyncImage(
-                    t.previewUrl,
-                    null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxWidth().height(150.dp)
-                )
+                AsyncImage(t.previewUrl, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxWidth().height(150.dp))
             }
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(t.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
@@ -1831,18 +2030,8 @@ private fun ReviewCard(
                     "failed" -> "Rust từ chối file"
                     else -> "Chưa kiểm tra Rust (có thể là link Drive)"
                 }
-                Text(
-                    validationLabel,
-                    color = validationColor,
-                    fontWeight = FontWeight.Bold,
-                    style = MaterialTheme.typography.labelLarge
-                )
-                if (t.clientValidationMessage.isNotBlank()) {
-                    Text(
-                        t.clientValidationMessage,
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                }
+                Text(validationLabel, color = validationColor, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge)
+                if (t.clientValidationMessage.isNotBlank()) Text(t.clientValidationMessage, style = MaterialTheme.typography.bodySmall)
                 if (t.clientFileSizeBytes > 0L) {
                     val sizeMb = t.clientFileSizeBytes.toDouble() / 1024.0 / 1024.0
                     Text(
@@ -1853,22 +2042,60 @@ private fun ReviewCard(
                 }
 
                 AdminSafetyReport(t)
+                Text("Checklist bắt buộc trước khi duyệt", fontWeight = FontWeight.Black)
+                ReviewChecklistRow("Ảnh xem trước đầy đủ, rõ ràng", checklist.previewOk) { checklist = checklist.copy(previewOk = it) }
+                ReviewChecklistRow("Link tải hoặc file hoạt động", checklist.downloadOk) { checklist = checklist.copy(downloadOk = it) }
+                ReviewChecklistRow("Đúng phiên bản MIUI/HyperOS", checklist.compatibilityOk) { checklist = checklist.copy(compatibilityOk = it) }
+                ReviewChecklistRow("Không chứa nội dung vi phạm", checklist.safeContent) { checklist = checklist.copy(safeContent = it) }
+                ReviewChecklistRow("Không trùng theme đã có", checklist.notDuplicate) { checklist = checklist.copy(notDuplicate = it) }
 
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(
-                        onClick = onApprove,
-                        enabled = t.clientValidationStatus != "failed" &&
+                        onClick = { onApprove(checklist) },
+                        enabled = checklist.completed &&
+                            t.clientValidationStatus != "failed" &&
                             (t.clientSafetyScore == 0 || t.clientSafetyScore >= 60),
                         modifier = Modifier.weight(1f)
                     ) { Text("Duyệt") }
-                    OutlinedButton(onClick = onReject, modifier = Modifier.weight(1f)) { Text("Từ chối") }
-                    IconButton(onClick = { editing = true }) { Icon(Icons.Default.Edit, "Sửa") }
+                    OutlinedButton(onClick = { showRejectDialog = true }, modifier = Modifier.weight(1f)) { Text("Từ chối") }
+                    if (canEdit) IconButton(onClick = { editing = true }) { Icon(Icons.Default.Edit, "Sửa") }
                 }
             }
         }
     }
 
-    if (editing) {
+    if (showRejectDialog) {
+        AlertDialog(
+            onDismissRequest = { showRejectDialog = false },
+            icon = { Icon(Icons.Default.ReportProblem, null) },
+            title = { Text("Lý do từ chối") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Người đăng sẽ nhận thông báo này và có thể sửa để gửi lại.")
+                    OutlinedTextField(
+                        value = rejectReason,
+                        onValueChange = { rejectReason = it.take(500) },
+                        label = { Text("Nội dung cần sửa") },
+                        minLines = 3,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    enabled = rejectReason.trim().length >= 5,
+                    onClick = {
+                        onReject(rejectReason.trim(), checklist)
+                        rejectReason = ""
+                        showRejectDialog = false
+                    }
+                ) { Text("Xác nhận từ chối") }
+            },
+            dismissButton = { TextButton(onClick = { showRejectDialog = false }) { Text("Hủy") } }
+        )
+    }
+
+    if (editing && canEdit) {
         var title by remember(t.id) { mutableStateOf(t.title) }
         var desc by remember(t.id) { mutableStateOf(t.description) }
         var drive by remember(t.id) { mutableStateOf(t.driveUrl) }
@@ -1879,72 +2106,116 @@ private fun ReviewCard(
             onDismissRequest = { editing = false },
             title = { Text("Sửa theme") },
             text = {
-                Column(
-                    Modifier.verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
+                Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     OutlinedTextField(title, { title = it }, label = { Text("Tên theme") })
                     OutlinedTextField(desc, { desc = it }, label = { Text("Mô tả") })
                     OutlinedTextField(drive, { drive = it }, label = { Text("Link Drive") })
                     OutlinedTextField(price, { price = it.filter(Char::isDigit) }, label = { Text("Giá M4X COIN") })
-
                     Text("Ảnh hiện tại", fontWeight = FontWeight.Bold)
-                    Row(
-                        Modifier.horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
+                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         val currentImages = if (t.previewUrls.isNotEmpty()) t.previewUrls else listOfNotNull(t.previewUrl.takeIf { it.isNotBlank() })
                         currentImages.forEach { url ->
-                            AsyncImage(
-                                url,
-                                null,
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier.size(82.dp).clip(RoundedCornerShape(14.dp))
-                            )
+                            AsyncImage(url, null, contentScale = ContentScale.Crop, modifier = Modifier.size(82.dp).clip(RoundedCornerShape(14.dp)))
                         }
                     }
-
-                    OutlinedButton(
-                        onClick = { imagePicker.launch(arrayOf("image/*")) },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Icon(Icons.Default.PhotoLibrary, null)
-                        Text(" Thay ảnh xem trước (${newPreviewUris.size}/5)")
+                    OutlinedButton(onClick = { imagePicker.launch(arrayOf("image/*")) }, modifier = Modifier.fillMaxWidth()) {
+                        Icon(Icons.Default.PhotoLibrary, null); Text(" Thay ảnh xem trước (${newPreviewUris.size}/5)")
                     }
                     if (newPreviewUris.isNotEmpty()) {
                         Text("Ảnh mới sẽ thay toàn bộ ảnh cũ", color = MaterialTheme.colorScheme.secondary)
-                        Row(
-                            Modifier.horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            newPreviewUris.forEach { uri ->
-                                AsyncImage(
-                                    uri,
-                                    null,
-                                    contentScale = ContentScale.Crop,
-                                    modifier = Modifier.size(82.dp).clip(RoundedCornerShape(14.dp))
-                                )
-                            }
+                        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            newPreviewUris.forEach { uri -> AsyncImage(uri, null, contentScale = ContentScale.Crop, modifier = Modifier.size(82.dp).clip(RoundedCornerShape(14.dp))) }
                         }
                     }
-
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        listOf("pending", "approved", "rejected").forEach { st ->
-                            FilterChip(selected = status == st, onClick = { status = st }, label = { Text(st) })
-                        }
+                        listOf("pending", "approved", "rejected").forEach { st -> FilterChip(selected = status == st, onClick = { status = st }, label = { Text(st) }) }
                     }
                 }
             },
             confirmButton = {
                 TextButton(onClick = {
                     onSave(title, desc, drive, price.toIntOrNull() ?: 0, status, newPreviewUris)
-                    newPreviewUris = emptyList()
-                    editing = false
+                    newPreviewUris = emptyList(); editing = false
                 }) { Text("Lưu online") }
             },
-            dismissButton = {
-                TextButton(onClick = { newPreviewUris = emptyList(); editing = false }) { Text("Hủy") }
+            dismissButton = { TextButton(onClick = { newPreviewUris = emptyList(); editing = false }) { Text("Hủy") } }
+        )
+    }
+}
+
+@Composable
+private fun ReviewChecklistRow(label: String, checked: Boolean, onChecked: (Boolean) -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable { onChecked(!checked) }.padding(vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Checkbox(checked = checked, onCheckedChange = onChecked)
+        Text(label, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+    }
+}
+
+@Composable
+private fun CreatorReputationCard(reputation: CreatorReputation?) {
+    val rep = reputation ?: CreatorReputation("", 50, 0, 0, 0, 0)
+    FormCard("Điểm uy tín Nhà sáng tạo", Icons.Default.WorkspacePremium) {
+        Text("${rep.score}/100 • ${rep.level}", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
+        LinearProgressIndicator(progress = { rep.score.coerceIn(0, 100) / 100f }, modifier = Modifier.fillMaxWidth())
+        Text("Duyệt: ${rep.approvedCount} • Từ chối: ${rep.rejectedCount} • Bị thu hồi: ${rep.revokedCount}")
+        Text("Duyệt đúng được cộng điểm; theme bị Super Admin thu hồi sẽ bị trừ điểm.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+@Composable
+private fun ReviewHistoryCard(
+    review: ThemeReviewHistory,
+    canRevoke: Boolean,
+    onRevoke: (String) -> Unit
+) {
+    var showRevoke by remember(review.id) { mutableStateOf(false) }
+    var reason by remember(review.id) { mutableStateOf("") }
+    val color = when (review.decision) {
+        "approved" -> MaterialTheme.colorScheme.primary
+        "revoked" -> MaterialTheme.colorScheme.error
+        else -> MaterialTheme.colorScheme.tertiary
+    }
+    ElevatedCard(shape = RoundedCornerShape(20.dp)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(review.themeTitle, fontWeight = FontWeight.Black, style = MaterialTheme.typography.titleMedium)
+                    Text("Người đăng: ${review.ownerName}", style = MaterialTheme.typography.bodySmall)
+                }
+                Text(review.decision.uppercase(), color = color, fontWeight = FontWeight.Black)
             }
+            Text("Người duyệt: ${review.reviewerName} • ${review.reviewerRole}")
+            Text(review.createdAt.replace('T', ' ').take(19), style = MaterialTheme.typography.labelSmall)
+            if (review.reason.isNotBlank()) Text("Lý do: ${review.reason}", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                "Checklist: ${listOf(review.checklist.previewOk, review.checklist.downloadOk, review.checklist.compatibilityOk, review.checklist.safeContent, review.checklist.notDuplicate).count { it }}/5",
+                style = MaterialTheme.typography.labelMedium
+            )
+            if (canRevoke) OutlinedButton(onClick = { showRevoke = true }, modifier = Modifier.fillMaxWidth()) {
+                Icon(Icons.Default.RemoveCircle, null); Text(" Thu hồi theme")
+            }
+        }
+    }
+    if (showRevoke) {
+        AlertDialog(
+            onDismissRequest = { showRevoke = false },
+            title = { Text("Thu hồi theme đã duyệt") },
+            text = {
+                OutlinedTextField(
+                    value = reason,
+                    onValueChange = { reason = it.take(500) },
+                    label = { Text("Lý do thu hồi") },
+                    minLines = 3,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                Button(enabled = reason.trim().length >= 5, onClick = { onRevoke(reason.trim()); showRevoke = false; reason = "" }) { Text("Thu hồi") }
+            },
+            dismissButton = { TextButton(onClick = { showRevoke = false }) { Text("Hủy") } }
         )
     }
 }
@@ -2019,7 +2290,65 @@ private fun AdminGiftCode(api: SupabaseApi, session: Session, onMessage: (String
         }
     }
 }
-@Composable private fun UserAdminRow(u: Profile, canEdit: Boolean, click: () -> Unit) { ElevatedCard(shape = RoundedCornerShape(18.dp)) { Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) { Box(Modifier.size(46.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primaryContainer), contentAlignment = Alignment.Center) { Text(u.displayName.take(1).uppercase().ifBlank { "M" }, fontWeight = FontWeight.Black) }; Spacer(Modifier.width(12.dp)); Column(Modifier.weight(1f)) { Text(u.displayName.ifBlank { u.username }, fontWeight = FontWeight.Bold); Text("@${u.username} • ${u.role} • ${u.points} coin", color = MaterialTheme.colorScheme.onSurfaceVariant) }; if (canEdit && u.role != "super_admin") TextButton(onClick = click) { Text(if (u.role == "admin") "Hạ quyền" else "Lên Admin") } } } }
+@Composable
+private fun UserAdminRow(
+    u: Profile,
+    reputation: CreatorReputation? = null,
+    canEdit: Boolean,
+    onRoleChange: (String) -> Unit
+) {
+    val roleLabel = when (u.role) {
+        "super_admin" -> "Super Admin"
+        "admin" -> "Admin"
+        "creator" -> "Nhà sáng tạo"
+        "banned" -> "Đã khóa"
+        else -> "Người dùng"
+    }
+    ElevatedCard(shape = RoundedCornerShape(18.dp)) {
+        Row(
+            Modifier.padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                Modifier.size(46.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primaryContainer),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(u.displayName.take(1).uppercase().ifBlank { "M" }, fontWeight = FontWeight.Black)
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(u.displayName.ifBlank { u.username }, fontWeight = FontWeight.Bold)
+                Text("@${u.username} • $roleLabel • ${u.points} coin", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (u.role == "creator") {
+                    Text(
+                        "Uy tín: ${reputation?.score ?: 50}/100 • ${reputation?.level ?: "Đang phát triển"}",
+                        color = MaterialTheme.colorScheme.secondary,
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+            if (canEdit && u.role != "super_admin") {
+                Column(horizontalAlignment = Alignment.End) {
+                    when (u.role) {
+                        "user", "banned" -> {
+                            TextButton(onClick = { onRoleChange("creator") }) { Text("Lên Sáng tạo") }
+                            TextButton(onClick = { onRoleChange("admin") }) { Text("Lên Admin") }
+                        }
+                        "creator" -> {
+                            TextButton(onClick = { onRoleChange("user") }) { Text("Hạ quyền") }
+                            TextButton(onClick = { onRoleChange("admin") }) { Text("Lên Admin") }
+                        }
+                        "admin" -> {
+                            TextButton(onClick = { onRoleChange("creator") }) { Text("Xuống Sáng tạo") }
+                            TextButton(onClick = { onRoleChange("user") }) { Text("Hạ Admin") }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
 
 private fun inventoryMetadata(item: InventoryItem?, key: String): String {
     if (item == null) return ""
@@ -2099,8 +2428,16 @@ private fun ProfileScreen(
         }
     }
 
+    fun reloadMine() {
+        scope.launch {
+            api.myThemes(session)
+                .onSuccess { mine = it }
+                .onFailure { onMessage(it.message ?: "Không tải được theme của bạn") }
+        }
+    }
+
     LaunchedEffect(Unit) {
-        api.myThemes(session).onSuccess { mine = it }
+        reloadMine()
         reloadInventory()
     }
     val downloads = mine.sumOf { it.downloads }
@@ -2246,6 +2583,23 @@ private fun ProfileScreen(
                 }
             }
         }
+        val rejectedThemes = mine.filter { it.status == "rejected" }
+        if (rejectedThemes.isNotEmpty()) {
+            item { SectionTitle("Theme cần sửa", "Xem lý do, chỉnh thông tin và gửi lại xét duyệt") }
+            items(rejectedThemes, key = { "rejected-${it.id}" }) { theme ->
+                RejectedThemeResubmitCard(
+                    theme = theme,
+                    onResubmit = { title, description, driveUrl, coinPrice ->
+                        scope.launch {
+                            api.resubmitTheme(session, theme.id, title, description, driveUrl, coinPrice)
+                                .onSuccess { onMessage("Đã gửi lại ${theme.title} để xét duyệt"); reloadMine() }
+                                .onFailure { onMessage(it.message ?: "Không thể gửi lại theme") }
+                        }
+                    }
+                )
+            }
+        }
+
         item {
             FormCard("Thành tích", Icons.Default.EmojiEvents) {
                 Text("Theme đã đăng: ${mine.size}")
@@ -2278,7 +2632,7 @@ private fun ProfileScreen(
                     shape = RoundedCornerShape(18.dp)
                 ) {
                     Icon(Icons.Default.AdminPanelSettings, null)
-                    Text(" Mở trung tâm Admin")
+                    Text(if (profile?.role == "creator") " Mở khu duyệt Theme" else " Mở trung tâm Admin")
                 }
             }
         }
@@ -2288,6 +2642,90 @@ private fun ProfileScreen(
                 Text(" Đăng xuất")
             }
         }
+    }
+}
+
+@Composable
+private fun ThemeReviewNotificationsDialog(
+    notifications: List<ThemeReviewNotification>,
+    onDismiss: () -> Unit,
+    onMarkAllRead: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = { Icon(Icons.Default.Notifications, null) },
+        title = { Text("Thông báo xét duyệt") },
+        text = {
+            if (notifications.isEmpty()) {
+                Text("Chưa có thông báo theme.")
+            } else {
+                LazyColumn(
+                    modifier = Modifier.heightIn(max = 520.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    items(notifications, key = { it.id }) { n ->
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = if (n.readAt.isBlank()) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
+                        ) {
+                            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text(n.title, fontWeight = FontWeight.Black)
+                                Text(n.message, style = MaterialTheme.typography.bodySmall)
+                                if (n.reason.isNotBlank()) Text("Lý do: ${n.reason}", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                                Text(n.createdAt.replace('T', ' ').take(19), style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = { onMarkAllRead(); onDismiss() }) { Text("Đánh dấu đã đọc") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Đóng") } }
+    )
+}
+
+@Composable
+private fun RejectedThemeResubmitCard(
+    theme: ThemeItem,
+    onResubmit: (String, String, String, Int) -> Unit
+) {
+    var editing by remember(theme.id) { mutableStateOf(false) }
+    ElevatedCard(shape = RoundedCornerShape(20.dp)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(theme.title, fontWeight = FontWeight.Black, style = MaterialTheme.typography.titleMedium)
+            Text("Bị từ chối", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)
+            Text(theme.rejectReason.ifBlank { "Theme cần được chỉnh sửa trước khi gửi lại." })
+            Button(onClick = { editing = true }, modifier = Modifier.fillMaxWidth()) {
+                Icon(Icons.Default.EditNote, null); Text(" Sửa và gửi lại")
+            }
+        }
+    }
+    if (editing) {
+        var title by remember(theme.id) { mutableStateOf(theme.title) }
+        var description by remember(theme.id) { mutableStateOf(theme.description) }
+        var driveUrl by remember(theme.id) { mutableStateOf(theme.driveUrl) }
+        var coinPrice by remember(theme.id) { mutableStateOf(theme.coinPrice.toString()) }
+        AlertDialog(
+            onDismissRequest = { editing = false },
+            title = { Text("Sửa và gửi lại theme") },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Lý do cần sửa: ${theme.rejectReason}", color = MaterialTheme.colorScheme.error)
+                    OutlinedTextField(title, { title = it }, label = { Text("Tên theme") }, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(description, { description = it }, label = { Text("Mô tả") }, minLines = 3, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(driveUrl, { driveUrl = it }, label = { Text("Link tải/Drive") }, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(coinPrice, { coinPrice = it.filter(Char::isDigit) }, label = { Text("Giá M4X Coin") }, modifier = Modifier.fillMaxWidth())
+                    Text("Để thay file hoặc ảnh xem trước, hãy đăng bản mới trong mục Đăng.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            },
+            confirmButton = {
+                Button(enabled = title.isNotBlank(), onClick = {
+                    onResubmit(title, description, driveUrl, coinPrice.toIntOrNull() ?: 0)
+                    editing = false
+                }) { Text("Gửi lại xét duyệt") }
+            },
+            dismissButton = { TextButton(onClick = { editing = false }) { Text("Hủy") } }
+        )
     }
 }
 

@@ -1,0 +1,26 @@
+M4X Theme v3.8.0 Review System
+
+PASS: versionCode 59
+PASS: versionName 3.8.0
+PASS: review checklist model
+PASS: history model
+PASS: reputation model
+PASS: Super Admin can see creator reputation scores
+PASS: notification model
+PASS: checklist rpc parameter
+PASS: revoke API
+PASS: resubmit API
+PASS: notification bell
+PASS: creator score UI
+PASS: history UI
+PASS: reject reason dialog
+PASS: resubmit UI
+PASS: SQL reputation
+PASS: SQL notifications
+PASS: SQL revoke
+PASS: SQL resubmit
+
+SQL phải chạy sau v3.7.0.
+Android APK chưa được build trong container; GitHub Actions cần xác nhận compile và APK cuối.
+PASS: notification users can update read_at only
+PASS: old 3-parameter review RPC removed

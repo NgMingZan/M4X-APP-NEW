@@ -22,8 +22,8 @@ android {
         applicationId = "com.aistudio.m4xtheme.app"
         minSdk = 24
         targetSdk = 35
-        versionCode = 57
-        versionName = "3.6.4"
+        versionCode = 59
+        versionName = "3.8.0"
 
         ndk {
             abiFilters += listOf(

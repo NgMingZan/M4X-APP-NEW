@@ -67,6 +67,81 @@ data class ThemeItem(
     val approvedFileSizeBytes: Long = 0L
 )
 
+data class ThemeReviewChecklist(
+    val previewOk: Boolean = false,
+    val downloadOk: Boolean = false,
+    val compatibilityOk: Boolean = false,
+    val safeContent: Boolean = false,
+    val notDuplicate: Boolean = false
+) {
+    val completed: Boolean
+        get() = previewOk && downloadOk && compatibilityOk && safeContent && notDuplicate
+
+    fun toJson(): JSONObject = JSONObject()
+        .put("preview_ok", previewOk)
+        .put("download_ok", downloadOk)
+        .put("compatibility_ok", compatibilityOk)
+        .put("safe_content", safeContent)
+        .put("not_duplicate", notDuplicate)
+
+    companion object {
+        fun fromJson(raw: String): ThemeReviewChecklist = runCatching {
+            val o = JSONObject(raw.ifBlank { "{}" })
+            ThemeReviewChecklist(
+                previewOk = o.optBoolean("preview_ok"),
+                downloadOk = o.optBoolean("download_ok"),
+                compatibilityOk = o.optBoolean("compatibility_ok"),
+                safeContent = o.optBoolean("safe_content"),
+                notDuplicate = o.optBoolean("not_duplicate")
+            )
+        }.getOrDefault(ThemeReviewChecklist())
+    }
+}
+
+data class ThemeReviewHistory(
+    val id: String,
+    val themeId: String,
+    val themeTitle: String,
+    val ownerId: String,
+    val ownerName: String,
+    val reviewerId: String,
+    val reviewerName: String,
+    val reviewerRole: String,
+    val decision: String,
+    val reason: String,
+    val checklist: ThemeReviewChecklist,
+    val createdAt: String
+)
+
+data class CreatorReputation(
+    val userId: String,
+    val score: Int,
+    val approvedCount: Int,
+    val rejectedCount: Int,
+    val revokedCount: Int,
+    val totalReviews: Int
+) {
+    val level: String
+        get() = when {
+            score >= 90 -> "Chuyên gia"
+            score >= 75 -> "Đáng tin cậy"
+            score >= 60 -> "Ổn định"
+            score >= 40 -> "Đang phát triển"
+            else -> "Cần cải thiện"
+        }
+}
+
+data class ThemeReviewNotification(
+    val id: String,
+    val themeId: String,
+    val type: String,
+    val title: String,
+    val message: String,
+    val reason: String,
+    val readAt: String,
+    val createdAt: String
+)
+
 data class EventItem(val id: String, val title: String, val description: String, val startAt: String, val endAt: String, val active: Boolean)
 data class QuestItem(val id: String, val title: String, val description: String, val reward: Int)
 data class LeaderboardItem(
@@ -438,10 +513,111 @@ class SupabaseApi(private val context: Context) {
         post("/rest/v1/themes", JSONArray().put(row).toString(), session)
     }
 
-    suspend fun reviewTheme(session: Session, id: String, approved: Boolean, reason: String = ""): Result<Unit> = io {
-        val json = JSONObject().put("status", if (approved) "approved" else "rejected")
-            .put("reject_reason", if (approved) "" else reason.ifBlank { "Theme chưa đạt yêu cầu" })
-        patch("/rest/v1/themes?id=eq.$id", json.toString(), session)
+    suspend fun reviewTheme(
+        session: Session,
+        id: String,
+        approved: Boolean,
+        reason: String = "",
+        checklist: ThemeReviewChecklist = ThemeReviewChecklist()
+    ): Result<Unit> = io {
+        if (approved) require(checklist.completed) { "Hãy hoàn thành đủ checklist trước khi duyệt" }
+        if (!approved) require(reason.trim().length >= 5) { "Hãy nhập lý do từ chối rõ ràng" }
+        val body = JSONObject()
+            .put("target_theme_id", id)
+            .put("approve_theme", approved)
+            .put("review_reason", if (approved) "" else reason.trim())
+            .put("review_checklist", checklist.toJson())
+        execute(
+            base("${SupabaseConfig.url}/rest/v1/rpc/review_theme", session)
+                .post(body.toString().toRequestBody(jsonType))
+                .build()
+        )
+    }
+
+    suspend fun themeReviewHistory(session: Session): Result<List<ThemeReviewHistory>> = io {
+        parseThemeReviewHistory(
+            get("/rest/v1/theme_reviews?select=*&order=created_at.desc&limit=250", session)
+        )
+    }
+
+    suspend fun creatorReputation(
+        session: Session,
+        userId: String = session.userId
+    ): Result<CreatorReputation?> = io {
+        val rows = get(
+            "/rest/v1/creator_reputation?user_id=eq.$userId&select=*&limit=1",
+            session
+        )
+        if (rows.length() == 0) null else parseCreatorReputation(rows.getJSONObject(0))
+    }
+
+    suspend fun creatorReputations(session: Session): Result<List<CreatorReputation>> = io {
+        val rows = get(
+            "/rest/v1/creator_reputation?select=*&order=score.desc,total_reviews.desc",
+            session
+        )
+        List(rows.length()) { index -> parseCreatorReputation(rows.getJSONObject(index)) }
+    }
+
+    suspend fun themeReviewNotifications(
+        session: Session
+    ): Result<List<ThemeReviewNotification>> = io {
+        parseThemeReviewNotifications(
+            get(
+                "/rest/v1/theme_review_notifications?user_id=eq.${session.userId}&select=*&order=created_at.desc&limit=100",
+                session
+            )
+        )
+    }
+
+    suspend fun markAllThemeNotificationsRead(session: Session): Result<Unit> = io {
+        val body = JSONObject().put("read_at", isoAfter(0))
+        patch(
+            "/rest/v1/theme_review_notifications?user_id=eq.${session.userId}&read_at=is.null",
+            body.toString(),
+            session
+        )
+    }
+
+    suspend fun revokeThemeApproval(
+        session: Session,
+        themeId: String,
+        reason: String
+    ): Result<Unit> = io {
+        require(reason.trim().length >= 5) { "Hãy nhập lý do thu hồi" }
+        val body = JSONObject()
+            .put("target_theme_id", themeId)
+            .put("revoke_reason", reason.trim())
+        execute(
+            base("${SupabaseConfig.url}/rest/v1/rpc/revoke_theme_approval", session)
+                .post(body.toString().toRequestBody(jsonType))
+                .build()
+        )
+    }
+
+    suspend fun resubmitTheme(
+        session: Session,
+        themeId: String,
+        title: String,
+        description: String,
+        driveUrl: String,
+        coinPrice: Int
+    ): Result<Unit> = io {
+        require(title.isNotBlank()) { "Tên theme không được để trống" }
+        if (driveUrl.isNotBlank()) require(driveUrl.startsWith("https://")) {
+            "Link tải phải bắt đầu bằng https://"
+        }
+        val body = JSONObject()
+            .put("target_theme_id", themeId)
+            .put("new_title", title.trim())
+            .put("new_description", description.trim())
+            .put("new_drive_url", driveUrl.trim())
+            .put("new_coin_price", coinPrice.coerceAtLeast(0))
+        execute(
+            base("${SupabaseConfig.url}/rest/v1/rpc/resubmit_theme", session)
+                .post(body.toString().toRequestBody(jsonType))
+                .build()
+        )
     }
 
     suspend fun updateThemeByAdmin(
@@ -1432,6 +1608,51 @@ class SupabaseApi(private val context: Context) {
 
     private fun parseEvents(a: JSONArray) = List(a.length()) { i ->
         a.getJSONObject(i).let { EventItem(it.getString("id"), it.optString("title"), it.optString("description"), it.optString("start_at"), it.optString("end_at"), it.optBoolean("active")) }
+    }
+
+    private fun parseThemeReviewHistory(a: JSONArray) = List(a.length()) { i ->
+        a.getJSONObject(i).let { o ->
+            ThemeReviewHistory(
+                id = o.optString("id"),
+                themeId = o.optString("theme_id"),
+                themeTitle = o.optString("theme_title", "Theme đã xóa"),
+                ownerId = o.optString("owner_id"),
+                ownerName = o.optString("owner_name", "Người đăng"),
+                reviewerId = o.optString("reviewer_id"),
+                reviewerName = o.optString("reviewer_name", "Người duyệt"),
+                reviewerRole = o.optString("reviewer_role", "creator"),
+                decision = o.optString("decision"),
+                reason = o.optString("reason"),
+                checklist = ThemeReviewChecklist.fromJson(
+                    o.optJSONObject("checklist")?.toString() ?: "{}"
+                ),
+                createdAt = o.optString("created_at")
+            )
+        }
+    }
+
+    private fun parseCreatorReputation(o: JSONObject) = CreatorReputation(
+        userId = o.optString("user_id"),
+        score = o.optInt("score", 50),
+        approvedCount = o.optInt("approved_count"),
+        rejectedCount = o.optInt("rejected_count"),
+        revokedCount = o.optInt("revoked_count"),
+        totalReviews = o.optInt("total_reviews")
+    )
+
+    private fun parseThemeReviewNotifications(a: JSONArray) = List(a.length()) { i ->
+        a.getJSONObject(i).let { o ->
+            ThemeReviewNotification(
+                id = o.optString("id"),
+                themeId = o.optString("theme_id"),
+                type = o.optString("type"),
+                title = o.optString("title", "Cập nhật theme"),
+                message = o.optString("message"),
+                reason = o.optString("reason"),
+                readAt = o.optString("read_at"),
+                createdAt = o.optString("created_at")
+            )
+        }
     }
 
     private fun parseThemes(a: JSONArray) = List(a.length()) { i ->

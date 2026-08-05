@@ -1,0 +1,8 @@
+cd ~/storage/downloads
+unzip -o M4X_V3_8_0_REVIEW_SYSTEM_PATCH.zip
+cp -afv M4X_V3_8_0_REVIEW_SYSTEM_PATCH/. ~/storage/downloads/M4X-APP-NEW-RUST/
+cd ~/storage/downloads/M4X-APP-NEW-RUST
+git status --short
+git add -A
+git commit -m "Add advanced theme review system v3.8.0"
+git push origin main
