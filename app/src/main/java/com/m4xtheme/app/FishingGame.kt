@@ -215,6 +215,7 @@ fun FishingGameScreen(
     api: SupabaseApi,
     session: Session,
     profile: Profile?,
+    bossHpMultiplier: Float = 1f,
     onBack: () -> Unit,
     onCoinChanged: (Long) -> Unit,
     onMessage: (String) -> Unit,
@@ -436,6 +437,8 @@ fun FishingGameScreen(
                             rod = current.rods.firstOrNull {
                                 it.equipped
                             },
+                            bossHpMultiplier =
+                                bossHpMultiplier,
                             onMessage = onMessage,
                             onBack = {
                                 onImmersiveChanged(false)
@@ -1230,6 +1233,7 @@ private fun FishingPlay(
     mapCount: Int,
     balance: Long,
     rod: FishingRodInfo?,
+    bossHpMultiplier: Float,
     onMessage: (String) -> Unit,
     onBack: () -> Unit,
     onShop: () -> Unit,
@@ -1519,11 +1523,17 @@ private fun FishingPlay(
                 playerHp = maxPlayer
 
                 bossMaxHp = (
-                    550f +
-                        newCast.fishDifficulty * 560f +
-                        map.difficulty * 260f +
-                        round * 90f
-                    )
+                    (
+                        550f +
+                            newCast.fishDifficulty * 560f +
+                            map.difficulty * 260f +
+                            round * 90f
+                        ) *
+                        bossHpMultiplier.coerceIn(
+                            0.1f,
+                            10f
+                        )
+                    ).coerceAtLeast(100f)
                 bossHp = bossMaxHp
 
                 delay(newCast.biteDelayMs.toLong())

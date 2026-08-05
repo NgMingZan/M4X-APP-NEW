@@ -516,6 +516,9 @@ private fun M4XApp() {
     var session by remember { mutableStateOf(api.restoreSession()) }
     var profile by remember { mutableStateOf<Profile?>(null) }
     var config by remember { mutableStateOf(RemoteConfig()) }
+    var onlineConfig by remember {
+        mutableStateOf(OnlineControlConfig())
+    }
     var tab by remember { mutableStateOf(Tab.HOME) }
     var message by remember { mutableStateOf<String?>(null) }
     var showAirdropChest by remember { mutableStateOf(false) }
@@ -550,6 +553,9 @@ private fun M4XApp() {
         session?.let { s ->
             api.profile(s).onSuccess { profile = it }.onFailure { message = it.message }
             api.remoteConfig(s).onSuccess { config = it }
+            api.onlineControlConfig(s).onSuccess {
+                onlineConfig = it
+            }
             while (true) {
                 delay((45_000L..120_000L).random())
                 api.hasActiveAirdrop(s).onSuccess { if (it) showAirdropChest = true }
@@ -570,6 +576,16 @@ private fun M4XApp() {
         val s = session ?: return@LaunchedEffect
         while (true) {
             api.themeReviewNotifications(s).onSuccess { reviewNotifications = it }
+            delay(60_000L)
+        }
+    }
+
+    LaunchedEffect(session?.userId) {
+        val s = session ?: return@LaunchedEffect
+        while (true) {
+            api.onlineControlConfig(s).onSuccess {
+                onlineConfig = it
+            }
             delay(60_000L)
         }
     }
@@ -663,6 +679,7 @@ private fun M4XApp() {
                     api = api,
                     session = session!!,
                     config = config,
+                    onlineConfig = onlineConfig,
                     profile = profile,
                     onOpenFishing = {
                         startGamesInFishing = true
@@ -673,7 +690,16 @@ private fun M4XApp() {
                     },
                     onMessage = { message = it }
                 )
-                Tab.QUEST -> QuestHub(api, session!!, profile, onCoinChanged = { newBalance -> profile = profile?.copy(points = newBalance) }, onMessage = { message = it })
+                Tab.QUEST -> QuestHub(
+                    api = api,
+                    session = session!!,
+                    profile = profile,
+                    onlineConfig = onlineConfig,
+                    onCoinChanged = { newBalance ->
+                        profile = profile?.copy(points = newBalance)
+                    },
+                    onMessage = { message = it }
+                )
                 Tab.UPLOAD -> UploadScreen(api, session!!, onMessage = { message = it }, onDone = { tab = Tab.PROFILE })
                 Tab.WEB -> M4XWebScreen(config = config, isAdmin = isAdmin, onOpen = { fullscreenWebUrl = it })
                 Tab.PROFILE -> ProfileScreen(
@@ -704,6 +730,7 @@ private fun M4XApp() {
                     api = api,
                     session = session!!,
                     profile = profile,
+                    onlineConfig = onlineConfig,
                     onBack = { tab = Tab.PROFILE },
                     onCoinChanged = { profile = profile?.copy(points = it) },
                     onMessage = { message = it },
@@ -713,7 +740,18 @@ private fun M4XApp() {
                         startGamesInFishing = false
                     }
                 )
-                Tab.ADMIN -> AdminScreen(api, session!!, profile, config, onConfigChanged = { config = it }, onMessage = { message = it })
+                Tab.ADMIN -> AdminScreen(
+                    api = api,
+                    session = session!!,
+                    profile = profile,
+                    config = config,
+                    onlineConfig = onlineConfig,
+                    onConfigChanged = { config = it },
+                    onOnlineConfigChanged = {
+                        onlineConfig = it
+                    },
+                    onMessage = { message = it }
+                )
             }
             if (showAirdropChest && !arenaImmersive) {
                 FloatingActionButton(
@@ -845,6 +883,7 @@ private fun HomeScreen(
     api: SupabaseApi,
     session: Session,
     config: RemoteConfig,
+    onlineConfig: OnlineControlConfig,
     profile: Profile?,
     onOpenFishing: () -> Unit,
     onCoinChanged: (Long) -> Unit,
@@ -894,10 +933,23 @@ private fun HomeScreen(
         api.activeEvents(session).onSuccess { events = it }
     }
 
+    val displayThemes = themes.sortedWith(
+        compareByDescending<ThemeItem> {
+            onlineConfig.featuredThemeId.isNotBlank() &&
+                it.id == onlineConfig.featuredThemeId
+        }.thenByDescending { it.createdAt }
+    )
+    val featuredTheme = displayThemes.firstOrNull {
+        onlineConfig.featuredThemeId.isNotBlank() &&
+            it.id == onlineConfig.featuredThemeId
+    }
     val tabThemes = when (themeTab) {
-        "Đặt hàng" -> themes.filter { it.id in purchasedThemeIds }
+        "Đặt hàng" ->
+            displayThemes.filter {
+                it.id in purchasedThemeIds
+            }
         "Ưa thích", "Thích" -> emptyList()
-        else -> themes
+        else -> displayThemes
     }
     val filtered = tabThemes.filter {
         (query.isBlank() || it.title.contains(query, true)) &&
@@ -1057,8 +1109,22 @@ private fun HomeScreen(
                 Box(Modifier.fillMaxWidth().background(Brush.linearGradient(listOf(Color(0xFF5E36FF), Color(0xFF00BFD9)))).padding(22.dp)) {
                     Column {
                         Text("M4X UNIVERSE", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Black)
-                        Spacer(Modifier.height(14.dp)); Text(config.homeBannerTitle, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Black)
-                        Text(config.homeBannerSubtitle)
+                        Spacer(Modifier.height(14.dp)); Text(
+                            if (onlineConfig.bannerEnabled) {
+                                onlineConfig.bannerTitle
+                            } else {
+                                config.homeBannerTitle
+                            },
+                            style = MaterialTheme.typography.headlineLarge,
+                            fontWeight = FontWeight.Black
+                        )
+                        Text(
+                            if (onlineConfig.bannerEnabled) {
+                                onlineConfig.bannerSubtitle
+                            } else {
+                                config.homeBannerSubtitle
+                            }
+                        )
                         Spacer(Modifier.height(18.dp))
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             MetricPill(Icons.Default.Paid, "$coinBalance COIN")
@@ -1143,6 +1209,110 @@ private fun HomeScreen(
         if (events.isNotEmpty()) item {
             SectionTitle("Sự kiện đang diễn ra", "Cập nhật online bởi Admin")
             EventBanner(events.first())
+        }
+        if (
+            onlineConfig.noticeEnabled &&
+            onlineConfig.noticeMessage.isNotBlank()
+        ) {
+            item {
+                ElevatedCard(
+                    shape = RoundedCornerShape(24.dp),
+                    colors = CardDefaults.elevatedCardColors(
+                        containerColor =
+                            MaterialTheme.colorScheme.tertiaryContainer
+                    )
+                ) {
+                    Row(
+                        Modifier.padding(18.dp),
+                        verticalAlignment = Alignment.Top
+                    ) {
+                        Icon(
+                            Icons.Default.Campaign,
+                            null,
+                            tint =
+                                MaterialTheme.colorScheme.tertiary
+                        )
+                        Spacer(Modifier.width(12.dp))
+                        Column {
+                            Text(
+                                onlineConfig.noticeTitle,
+                                fontWeight = FontWeight.Black,
+                                style =
+                                    MaterialTheme.typography.titleMedium
+                            )
+                            Text(onlineConfig.noticeMessage)
+                        }
+                    }
+                }
+            }
+        }
+        if (featuredTheme != null) {
+            item {
+                SectionTitle(
+                    "Theme nổi bật",
+                    "Admin có thể thay đổi online"
+                )
+                Spacer(Modifier.height(8.dp))
+                ElevatedCard(
+                    onClick = {
+                        selectedTheme = featuredTheme
+                        scope.launch {
+                            api.recordThemeView(
+                                session,
+                                featuredTheme.id
+                            )
+                        }
+                    },
+                    shape = RoundedCornerShape(26.dp)
+                ) {
+                    Row(
+                        Modifier.padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        AsyncImage(
+                            model = featuredTheme.previewUrl,
+                            contentDescription = featuredTheme.title,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier
+                                .size(width = 92.dp, height = 118.dp)
+                                .clip(RoundedCornerShape(18.dp))
+                        )
+                        Spacer(Modifier.width(14.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                featuredTheme.title,
+                                style =
+                                    MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Black,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                themeAuthorName(featuredTheme),
+                                color =
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(Modifier.height(8.dp))
+                            AssistChip(
+                                onClick = {
+                                    selectedTheme = featuredTheme
+                                },
+                                label = {
+                                    Text(
+                                        if (
+                                            featuredTheme.coinPrice > 0
+                                        ) {
+                                            "${featuredTheme.coinPrice} M4X"
+                                        } else {
+                                            "Miễn phí"
+                                        }
+                                    )
+                                }
+                            )
+                        }
+                    }
+                }
+            }
         }
         item {
             OutlinedTextField(query, { query = it }, modifier = Modifier.fillMaxWidth(), placeholder = { Text("Tìm theme, tác giả, phong cách…") }, leadingIcon = { Icon(Icons.Default.Search, null) }, shape = RoundedCornerShape(22.dp), singleLine = true)
@@ -1822,18 +1992,255 @@ private fun themeAuthorSubtitle(theme: ThemeItem): String {
 }
 
 @Composable
-private fun QuestHub(api: SupabaseApi, session: Session, profile: Profile?, onCoinChanged: (Long) -> Unit, onMessage: (String) -> Unit) {
+private fun QuestHub(
+    api: SupabaseApi,
+    session: Session,
+    profile: Profile?,
+    onlineConfig: OnlineControlConfig,
+    onCoinChanged: (Long) -> Unit,
+    onMessage: (String) -> Unit
+) {
     val scope = rememberCoroutineScope()
     var quests by remember { mutableStateOf<List<QuestItem>>(emptyList()) }
     var claimed by remember { mutableStateOf<Set<String>>(emptySet()) }
     var gift by remember { mutableStateOf("") }
     var leaderboard by remember { mutableStateOf<List<LeaderboardItem>>(emptyList()) }
     var openingChest by remember { mutableStateOf(false) }
+    var claimingOnlineQuest by remember {
+        mutableStateOf(false)
+    }
+    var claimingCheckin by remember {
+        mutableStateOf(false)
+    }
+    var spinningOnline by remember {
+        mutableStateOf(false)
+    }
     fun reloadQuests() { scope.launch { api.claimedQuestIds(session).onSuccess { claimed = it }; api.activeQuests(session).onSuccess { quests = it } } }
     LaunchedEffect(Unit) { reloadQuests(); api.weeklyLeaderboard(session).onSuccess { leaderboard = it } }
     val available = quests.filterNot { it.id in claimed }
     LazyColumn(Modifier.fillMaxSize().imePadding(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         item { Card(shape = RoundedCornerShape(30.dp)) { Box(Modifier.background(Brush.linearGradient(listOf(Color(0xFF2B1C5B), Color(0xFF0E6670)))).padding(22.dp)) { Column { Text("M4X QUEST MAP", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Black); Text("Vượt từng khu vực, mở rương và đánh Boss cuối tuần"); Spacer(Modifier.height(12.dp)); LinearProgressIndicator(progress = { .35f }, modifier = Modifier.fillMaxWidth().height(10.dp).clip(CircleShape)); Spacer(Modifier.height(8.dp)); Text("Cấp 3 • ${profile?.points ?: 0} M4X COIN") } } } }
+        if (onlineConfig.dailyQuestEnabled) {
+            item {
+                ElevatedCard(
+                    shape = RoundedCornerShape(24.dp)
+                ) {
+                    Column(
+                        Modifier.padding(18.dp),
+                        verticalArrangement =
+                            Arrangement.spacedBy(10.dp)
+                    ) {
+                        Row(
+                            verticalAlignment =
+                                Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                Icons.Default.Bolt,
+                                null,
+                                tint =
+                                    MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(Modifier.width(10.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    onlineConfig.dailyQuestTitle,
+                                    fontWeight = FontWeight.Black
+                                )
+                                Text(
+                                    onlineConfig.dailyQuestDescription,
+                                    color =
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Text(
+                                "+${onlineConfig.dailyQuestReward}",
+                                fontWeight = FontWeight.Black,
+                                color =
+                                    MaterialTheme.colorScheme.secondary
+                            )
+                        }
+                        Button(
+                            enabled = !claimingOnlineQuest,
+                            onClick = {
+                                claimingOnlineQuest = true
+                                scope.launch {
+                                    api.claimOnlineDailyQuest(session)
+                                        .onSuccess {
+                                            onCoinChanged(it.balance)
+                                            onMessage(it.message)
+                                        }
+                                        .onFailure {
+                                            onMessage(
+                                                it.message
+                                                    ?: "Không thể nhận quà"
+                                            )
+                                        }
+                                    claimingOnlineQuest = false
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                if (claimingOnlineQuest) {
+                                    "Đang nhận…"
+                                } else {
+                                    "Nhận nhiệm vụ hôm nay"
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        if (onlineConfig.checkinEnabled) {
+            item {
+                ElevatedCard(
+                    shape = RoundedCornerShape(24.dp)
+                ) {
+                    Column(
+                        Modifier.padding(18.dp),
+                        verticalArrangement =
+                            Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text(
+                            "Điểm danh 7 ngày",
+                            style =
+                                MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Black
+                        )
+                        Row(
+                            Modifier.horizontalScroll(
+                                rememberScrollState()
+                            ),
+                            horizontalArrangement =
+                                Arrangement.spacedBy(8.dp)
+                        ) {
+                            onlineConfig.checkinRewards
+                                .forEachIndexed { index, reward ->
+                                    AssistChip(
+                                        onClick = {},
+                                        label = {
+                                            Text(
+                                                "Ngày ${index + 1}: $reward"
+                                            )
+                                        }
+                                    )
+                                }
+                        }
+                        Button(
+                            enabled = !claimingCheckin,
+                            onClick = {
+                                claimingCheckin = true
+                                scope.launch {
+                                    api.claimOnlineCheckin(session)
+                                        .onSuccess {
+                                            onCoinChanged(it.balance)
+                                            onMessage(it.message)
+                                        }
+                                        .onFailure {
+                                            onMessage(
+                                                it.message
+                                                    ?: "Không thể điểm danh"
+                                            )
+                                        }
+                                    claimingCheckin = false
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Default.CalendarMonth, null)
+                            Spacer(Modifier.width(7.dp))
+                            Text(
+                                if (claimingCheckin) {
+                                    "Đang điểm danh…"
+                                } else {
+                                    "Điểm danh hôm nay"
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        if (onlineConfig.spinEnabled) {
+            item {
+                ElevatedCard(
+                    shape = RoundedCornerShape(24.dp)
+                ) {
+                    Column(
+                        Modifier.padding(18.dp),
+                        verticalArrangement =
+                            Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text(
+                            "Vòng quay online",
+                            style =
+                                MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Black
+                        )
+                        Text(
+                            "Phí ${onlineConfig.spinCost} M4X • " +
+                                "Thưởng tối đa ${
+                                    onlineConfig.spinRewards
+                                        .maxOfOrNull { it.reward } ?: 0
+                                } M4X",
+                            color =
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Row(
+                            Modifier.horizontalScroll(
+                                rememberScrollState()
+                            ),
+                            horizontalArrangement =
+                                Arrangement.spacedBy(8.dp)
+                        ) {
+                            onlineConfig.spinRewards.forEach {
+                                AssistChip(
+                                    onClick = {},
+                                    label = {
+                                        Text("${it.reward} M4X")
+                                    }
+                                )
+                            }
+                        }
+                        Button(
+                            enabled =
+                                !spinningOnline &&
+                                    (profile?.points ?: 0L) >=
+                                    onlineConfig.spinCost,
+                            onClick = {
+                                spinningOnline = true
+                                scope.launch {
+                                    api.spinOnlineWheel(session)
+                                        .onSuccess {
+                                            onCoinChanged(it.balance)
+                                            onMessage(it.message)
+                                        }
+                                        .onFailure {
+                                            onMessage(
+                                                it.message
+                                                    ?: "Không thể quay"
+                                            )
+                                        }
+                                    spinningOnline = false
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Default.Casino, null)
+                            Spacer(Modifier.width(7.dp))
+                            Text(
+                                if (spinningOnline) {
+                                    "Đang quay…"
+                                } else {
+                                    "Quay • ${onlineConfig.spinCost} coin"
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+        }
         item { SectionTitle("Nhiệm vụ hôm nay", "Nhiệm vụ đã nhận thưởng sẽ tự ẩn") }
         if (available.isEmpty()) item { EmptyState("Đã hoàn thành hết", "Nhiệm vụ mới sẽ được Admin cập nhật online") }
         items(available, key = { it.id }) { q ->
@@ -2361,7 +2768,16 @@ private fun FullscreenWebViewer(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun AdminScreen(api: SupabaseApi, session: Session, profile: Profile?, config: RemoteConfig, onConfigChanged: (RemoteConfig) -> Unit, onMessage: (String) -> Unit) {
+private fun AdminScreen(
+    api: SupabaseApi,
+    session: Session,
+    profile: Profile?,
+    config: RemoteConfig,
+    onlineConfig: OnlineControlConfig,
+    onConfigChanged: (RemoteConfig) -> Unit,
+    onOnlineConfigChanged: (OnlineControlConfig) -> Unit,
+    onMessage: (String) -> Unit
+) {
     val scope = rememberCoroutineScope()
     val isCreator = profile?.role == "creator"
     val isAdmin = profile?.role in setOf("admin", "super_admin")
@@ -2463,7 +2879,16 @@ private fun AdminScreen(api: SupabaseApi, session: Session, profile: Profile?, c
                         Modifier.horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        listOf("Tổng quan", "Theme", "Lịch sử duyệt", "Sự kiện", "Giftcode", "Người dùng", "M4X WEB").forEachIndexed { i, label ->
+                        listOf(
+                            "Tổng quan",
+                            "Theme",
+                            "Lịch sử duyệt",
+                            "Sự kiện",
+                            "Giftcode",
+                            "Người dùng",
+                            "Online",
+                            "M4X WEB"
+                        ).forEachIndexed { i, label ->
                             FilterChip(selected = selected == i, onClick = { selected = i }, label = { Text(label) })
                         }
                     }
@@ -2532,7 +2957,25 @@ private fun AdminScreen(api: SupabaseApi, session: Session, profile: Profile?, c
                             }
                         )
                     }
-                    6 -> item { AdminWebSettings(api, session, config, onSaved = onConfigChanged, onMessage = onMessage) }
+                    6 -> item {
+                        AdminOnlineControlCenter(
+                            api = api,
+                            session = session,
+                            config = onlineConfig,
+                            themes = allThemes,
+                            onSaved = onOnlineConfigChanged,
+                            onMessage = onMessage
+                        )
+                    }
+                    7 -> item {
+                        AdminWebSettings(
+                            api,
+                            session,
+                            config,
+                            onSaved = onConfigChanged,
+                            onMessage = onMessage
+                        )
+                    }
                 }
             }
         }

@@ -375,6 +375,50 @@ data class RemoteConfig(
     val webAdultEnabled: Boolean = true
 )
 
+data class OnlineSpinReward(
+    val reward: Int,
+    val weight: Int
+)
+
+data class OnlineControlConfig(
+    val bannerEnabled: Boolean = true,
+    val bannerTitle: String = "M4X Theme",
+    val bannerSubtitle: String = "Kho giao diện HyperOS & MIUI",
+    val noticeEnabled: Boolean = false,
+    val noticeTitle: String = "Thông báo",
+    val noticeMessage: String = "",
+    val dailyQuestEnabled: Boolean = true,
+    val dailyQuestTitle: String = "Điểm danh nhiệm vụ online",
+    val dailyQuestDescription: String = "Mở ứng dụng và nhận quà hôm nay",
+    val dailyQuestReward: Int = 100,
+    val checkinEnabled: Boolean = true,
+    val checkinRewards: List<Int> = listOf(
+        50, 75, 100, 125, 150, 200, 300
+    ),
+    val spinEnabled: Boolean = true,
+    val spinCost: Int = 25,
+    val spinRewards: List<OnlineSpinReward> = listOf(
+        OnlineSpinReward(0, 20),
+        OnlineSpinReward(10, 45),
+        OnlineSpinReward(50, 20),
+        OnlineSpinReward(100, 10),
+        OnlineSpinReward(250, 5)
+    ),
+    val fishingEnabled: Boolean = true,
+    val fishingClosedMessage: String = "M4X Fishing đang bảo trì",
+    val fishingRewardMultiplier: Double = 1.0,
+    val fishingBossHpMultiplier: Double = 1.0,
+    val featuredThemeId: String = ""
+)
+
+data class OnlineCoinResult(
+    val reward: Int,
+    val balance: Long,
+    val message: String,
+    val streak: Int = 0,
+    val cost: Int = 0
+)
+
 class SupabaseApi(private val context: Context) {
     private val jsonType = "application/json; charset=utf-8".toMediaType()
     private val http = OkHttpClient.Builder()
@@ -1571,6 +1615,222 @@ class SupabaseApi(private val context: Context) {
         post("/rest/v1/events", JSONArray().put(row).toString(), session)
     }
 
+    suspend fun onlineControlConfig(
+        session: Session
+    ): Result<OnlineControlConfig> = io {
+        val rows = get(
+            "/rest/v1/online_control_config?id=eq.main&select=*",
+            session
+        )
+        if (rows.length() == 0) {
+            OnlineControlConfig()
+        } else {
+            parseOnlineControlConfig(rows.getJSONObject(0))
+        }
+    }
+
+    suspend fun updateOnlineControlConfig(
+        session: Session,
+        config: OnlineControlConfig
+    ): Result<OnlineControlConfig> = io {
+        require(config.bannerTitle.trim().isNotBlank()) {
+            "Tiêu đề banner không được để trống"
+        }
+        require(config.dailyQuestReward in 0..1_000_000) {
+            "Thưởng nhiệm vụ không hợp lệ"
+        }
+        require(config.checkinRewards.isNotEmpty()) {
+            "Cần ít nhất một phần thưởng điểm danh"
+        }
+        require(config.checkinRewards.all { it in 0..1_000_000 }) {
+            "Phần thưởng điểm danh không hợp lệ"
+        }
+        require(config.spinCost in 0..1_000_000) {
+            "Phí vòng quay không hợp lệ"
+        }
+        require(
+            config.spinRewards.isNotEmpty() &&
+                config.spinRewards.all {
+                    it.reward in 0..1_000_000 &&
+                        it.weight > 0
+                }
+        ) {
+            "Danh sách phần thưởng vòng quay không hợp lệ"
+        }
+        require(config.fishingRewardMultiplier in 0.1..10.0) {
+            "Hệ số thưởng cá phải từ 0.1 đến 10"
+        }
+        require(config.fishingBossHpMultiplier in 0.1..10.0) {
+            "Hệ số máu Boss phải từ 0.1 đến 10"
+        }
+
+        val checkinJson = JSONArray()
+        config.checkinRewards.forEach { checkinJson.put(it) }
+
+        val spinJson = JSONArray()
+        config.spinRewards.forEach {
+            spinJson.put(
+                JSONObject()
+                    .put("reward", it.reward)
+                    .put("weight", it.weight)
+            )
+        }
+
+        val body = JSONObject()
+            .put("banner_enabled", config.bannerEnabled)
+            .put("banner_title", config.bannerTitle.trim())
+            .put(
+                "banner_subtitle",
+                config.bannerSubtitle.trim()
+            )
+            .put("notice_enabled", config.noticeEnabled)
+            .put("notice_title", config.noticeTitle.trim())
+            .put(
+                "notice_message",
+                config.noticeMessage.trim()
+            )
+            .put(
+                "daily_quest_enabled",
+                config.dailyQuestEnabled
+            )
+            .put(
+                "daily_quest_title",
+                config.dailyQuestTitle.trim()
+            )
+            .put(
+                "daily_quest_description",
+                config.dailyQuestDescription.trim()
+            )
+            .put(
+                "daily_quest_reward",
+                config.dailyQuestReward
+            )
+            .put("checkin_enabled", config.checkinEnabled)
+            .put("checkin_rewards", checkinJson)
+            .put("spin_enabled", config.spinEnabled)
+            .put("spin_cost", config.spinCost)
+            .put("spin_rewards", spinJson)
+            .put("fishing_enabled", config.fishingEnabled)
+            .put(
+                "fishing_closed_message",
+                config.fishingClosedMessage.trim()
+            )
+            .put(
+                "fishing_reward_multiplier",
+                config.fishingRewardMultiplier
+            )
+            .put(
+                "fishing_boss_hp_multiplier",
+                config.fishingBossHpMultiplier
+            )
+            .put(
+                "featured_theme_id",
+                if (config.featuredThemeId.isBlank()) {
+                    JSONObject.NULL
+                } else {
+                    config.featuredThemeId
+                }
+            )
+        patch(
+            "/rest/v1/online_control_config?id=eq.main",
+            body.toString(),
+            session
+        )
+
+        val rows = get(
+            "/rest/v1/online_control_config?id=eq.main&select=*",
+            session
+        )
+        if (rows.length() == 0) {
+            OnlineControlConfig()
+        } else {
+            parseOnlineControlConfig(rows.getJSONObject(0))
+        }
+    }
+
+    suspend fun claimOnlineDailyQuest(
+        session: Session
+    ): Result<OnlineCoinResult> = io {
+        val request = base(
+            "${SupabaseConfig.url}/rest/v1/rpc/claim_online_daily_quest",
+            session
+        ).post("{}".toRequestBody(jsonType)).build()
+
+        http.newCall(request).execute().use { response ->
+            val raw = response.body?.string().orEmpty()
+            if (!response.isSuccessful) {
+                throw IOException(
+                    error(raw, "Không thể nhận nhiệm vụ online")
+                )
+            }
+            val o = rpcObject(raw)
+            OnlineCoinResult(
+                reward = o.optInt("reward"),
+                balance = o.optLong("balance"),
+                message = o.optString(
+                    "message",
+                    "Đã nhận quà nhiệm vụ online"
+                )
+            )
+        }
+    }
+
+    suspend fun claimOnlineCheckin(
+        session: Session
+    ): Result<OnlineCoinResult> = io {
+        val request = base(
+            "${SupabaseConfig.url}/rest/v1/rpc/claim_online_checkin",
+            session
+        ).post("{}".toRequestBody(jsonType)).build()
+
+        http.newCall(request).execute().use { response ->
+            val raw = response.body?.string().orEmpty()
+            if (!response.isSuccessful) {
+                throw IOException(
+                    error(raw, "Không thể điểm danh")
+                )
+            }
+            val o = rpcObject(raw)
+            OnlineCoinResult(
+                reward = o.optInt("reward"),
+                balance = o.optLong("balance"),
+                message = o.optString(
+                    "message",
+                    "Điểm danh thành công"
+                ),
+                streak = o.optInt("streak")
+            )
+        }
+    }
+
+    suspend fun spinOnlineWheel(
+        session: Session
+    ): Result<OnlineCoinResult> = io {
+        val request = base(
+            "${SupabaseConfig.url}/rest/v1/rpc/spin_online_wheel",
+            session
+        ).post("{}".toRequestBody(jsonType)).build()
+
+        http.newCall(request).execute().use { response ->
+            val raw = response.body?.string().orEmpty()
+            if (!response.isSuccessful) {
+                throw IOException(
+                    error(raw, "Không thể quay vòng quay")
+                )
+            }
+            val o = rpcObject(raw)
+            OnlineCoinResult(
+                reward = o.optInt("reward"),
+                balance = o.optLong("balance"),
+                message = o.optString(
+                    "message",
+                    "Đã quay vòng quay"
+                ),
+                cost = o.optInt("cost")
+            )
+        }
+    }
+
     suspend fun remoteConfig(session: Session): Result<RemoteConfig> = io {
         val a = get("/rest/v1/app_config?id=eq.main&select=*", session)
         if (a.length() == 0) return@io RemoteConfig()
@@ -1629,6 +1889,100 @@ class SupabaseApi(private val context: Context) {
             webFootballEnabled = o.optBoolean("web_football_enabled", true),
             webMovieEnabled = o.optBoolean("web_movie_enabled", true),
             webAdultEnabled = o.optBoolean("web_adult_enabled", true)
+        )
+    }
+
+    private fun parseOnlineControlConfig(
+        o: JSONObject
+    ): OnlineControlConfig {
+        val checkinJson =
+            o.optJSONArray("checkin_rewards") ?: JSONArray()
+        val checkinRewards =
+            List(checkinJson.length()) { index ->
+                checkinJson.optInt(index)
+            }.filter { it >= 0 }
+                .ifEmpty {
+                    listOf(50, 75, 100, 125, 150, 200, 300)
+                }
+
+        val spinJson =
+            o.optJSONArray("spin_rewards") ?: JSONArray()
+        val spinRewards =
+            List(spinJson.length()) { index ->
+                val reward = spinJson.optJSONObject(index)
+                    ?: JSONObject()
+                OnlineSpinReward(
+                    reward = reward.optInt("reward"),
+                    weight = reward.optInt("weight", 1)
+                        .coerceAtLeast(1)
+                )
+            }.ifEmpty {
+                listOf(
+                    OnlineSpinReward(0, 20),
+                    OnlineSpinReward(10, 45),
+                    OnlineSpinReward(50, 20),
+                    OnlineSpinReward(100, 10),
+                    OnlineSpinReward(250, 5)
+                )
+            }
+
+        return OnlineControlConfig(
+            bannerEnabled =
+                o.optBoolean("banner_enabled", true),
+            bannerTitle =
+                o.optString("banner_title", "M4X Theme"),
+            bannerSubtitle =
+                o.optString(
+                    "banner_subtitle",
+                    "Kho giao diện HyperOS & MIUI"
+                ),
+            noticeEnabled =
+                o.optBoolean("notice_enabled", false),
+            noticeTitle =
+                o.optString("notice_title", "Thông báo"),
+            noticeMessage =
+                o.optString("notice_message"),
+            dailyQuestEnabled =
+                o.optBoolean("daily_quest_enabled", true),
+            dailyQuestTitle =
+                o.optString(
+                    "daily_quest_title",
+                    "Điểm danh nhiệm vụ online"
+                ),
+            dailyQuestDescription =
+                o.optString(
+                    "daily_quest_description",
+                    "Mở ứng dụng và nhận quà hôm nay"
+                ),
+            dailyQuestReward =
+                o.optInt("daily_quest_reward", 100),
+            checkinEnabled =
+                o.optBoolean("checkin_enabled", true),
+            checkinRewards = checkinRewards,
+            spinEnabled =
+                o.optBoolean("spin_enabled", true),
+            spinCost =
+                o.optInt("spin_cost", 25),
+            spinRewards = spinRewards,
+            fishingEnabled =
+                o.optBoolean("fishing_enabled", true),
+            fishingClosedMessage =
+                o.optString(
+                    "fishing_closed_message",
+                    "M4X Fishing đang bảo trì"
+                ),
+            fishingRewardMultiplier =
+                o.optDouble(
+                    "fishing_reward_multiplier",
+                    1.0
+                ),
+            fishingBossHpMultiplier =
+                o.optDouble(
+                    "fishing_boss_hp_multiplier",
+                    1.0
+                ),
+            featuredThemeId =
+                o.optString("featured_theme_id")
         )
     }
 

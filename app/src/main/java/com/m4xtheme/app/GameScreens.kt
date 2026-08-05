@@ -46,6 +46,7 @@ fun M4XGamesHubScreen(
     api: SupabaseApi,
     session: Session,
     profile: Profile?,
+    onlineConfig: OnlineControlConfig,
     onBack: () -> Unit,
     onCoinChanged: (Long) -> Unit,
     onMessage: (String) -> Unit,
@@ -94,22 +95,95 @@ fun M4XGamesHubScreen(
             onMessage = onMessage,
             onImmersiveChanged = onImmersiveChanged
         )
-        GamesPage.FISHING -> FishingGameScreen(
-            api = api,
-            session = session,
-            profile = profile,
-            onBack = {
-                onImmersiveChanged(false)
-                page = GamesPage.HUB
-            },
-            onCoinChanged = onCoinChanged,
-            onMessage = onMessage,
-            onImmersiveChanged = onImmersiveChanged
-        )
+        GamesPage.FISHING -> {
+            if (!onlineConfig.fishingEnabled) {
+                OnlineGameClosed(
+                    title = "M4X Fishing đang tạm đóng",
+                    message =
+                        onlineConfig.fishingClosedMessage,
+                    onBack = {
+                        onImmersiveChanged(false)
+                        page = GamesPage.HUB
+                    }
+                )
+            } else {
+                FishingGameScreen(
+                    api = api,
+                    session = session,
+                    profile = profile,
+                    bossHpMultiplier =
+                        onlineConfig
+                            .fishingBossHpMultiplier
+                            .toFloat(),
+                    onBack = {
+                        onImmersiveChanged(false)
+                        page = GamesPage.HUB
+                    },
+                    onCoinChanged = onCoinChanged,
+                    onMessage = onMessage,
+                    onImmersiveChanged =
+                        onImmersiveChanged
+                )
+            }
+        }
         GamesPage.OBSTACLE -> ObstacleGameScreen(api, session, { page = GamesPage.HUB }, onCoinChanged, onMessage)
         GamesPage.MAZE -> MazeGameScreen(api, session, profile, { page = GamesPage.HUB }, onCoinChanged, onMessage)
         GamesPage.TREASURE -> TreasureMapScreen(api, session, { page = GamesPage.HUB }, onCoinChanged, onMessage)
         GamesPage.PET -> PetScreen(api, session, { page = GamesPage.HUB }, onCoinChanged, onMessage)
+    }
+}
+
+@Composable
+private fun OnlineGameClosed(
+    title: String,
+    message: String,
+    onBack: () -> Unit
+) {
+    Box(
+        Modifier
+            .fillMaxSize()
+            .padding(24.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        ElevatedCard(
+            shape = RoundedCornerShape(28.dp)
+        ) {
+            Column(
+                Modifier.padding(24.dp),
+                horizontalAlignment =
+                    Alignment.CenterHorizontally,
+                verticalArrangement =
+                    Arrangement.spacedBy(12.dp)
+            ) {
+                Icon(
+                    Icons.Default.CloudOff,
+                    null,
+                    Modifier.size(54.dp),
+                    tint = MaterialTheme.colorScheme.error
+                )
+                Text(
+                    title,
+                    style =
+                        MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Black,
+                    textAlign = TextAlign.Center
+                )
+                Text(
+                    message,
+                    textAlign = TextAlign.Center,
+                    color =
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Button(
+                    onClick = onBack,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Default.ArrowBack, null)
+                    Spacer(Modifier.width(7.dp))
+                    Text("Quay lại")
+                }
+            }
+        }
     }
 }
 

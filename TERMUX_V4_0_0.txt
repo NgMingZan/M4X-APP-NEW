@@ -1,0 +1,8 @@
+cd ~/storage/downloads
+unzip -o M4X_V4_0_0_ONLINE_CONTROL_CENTER_PATCH.zip
+cp -afv M4X_V4_0_0_ONLINE_CONTROL_CENTER_PATCH/. ~/storage/downloads/M4X-APP-NEW-RUST/
+cd ~/storage/downloads/M4X-APP-NEW-RUST
+git status --short
+git add -A
+git commit -m "Add online control center v4.0.0"
+git push origin main

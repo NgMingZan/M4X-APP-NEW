@@ -1,0 +1,39 @@
+M4X Theme v4.0.0 — Online Control Center validation
+
+PASS: versionCode 72
+PASS: versionName 4.0.0
+PASS: online config model
+PASS: online config fetch
+PASS: online config update
+PASS: daily quest RPC client
+PASS: checkin RPC client
+PASS: spin RPC client
+PASS: periodic refresh
+PASS: home online banner
+PASS: home online notice
+PASS: featured theme
+PASS: quest online cards
+PASS: admin online tab
+PASS: fishing enabled switch
+PASS: boss multiplier
+PASS: admin UI file
+PASS: SQL config table
+PASS: SQL daily quest
+PASS: SQL checkin
+PASS: SQL spin
+PASS: SQL fishing multiplier trigger
+PASS: workflow v4
+PASS: update json v4
+PASS: Main braces
+PASS: API braces
+PASS: Game braces
+PASS: Fishing braces
+PASS: UI braces
+PASS: Kotlin parser found no syntax-error tokens in changed files.
+PASS: ZIP files will be tested after creation.
+
+Important:
+- Run SUPABASE_V4_0_0_ONLINE_CONTROL_CENTER.sql before using Admin → Online.
+- The first APK update is required to add the Online screen and client readers.
+- After v4.0.0 is installed, later configuration changes are online and do not require a new APK.
+- A real Android/Compose build was not available locally; GitHub Actions must confirm the APK.
