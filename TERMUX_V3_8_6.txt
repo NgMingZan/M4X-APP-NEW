@@ -1,0 +1,8 @@
+cd ~/storage/downloads
+unzip -o M4X_V3_8_6_THEME_TAP_FIX_PATCH.zip
+cp -afv M4X_V3_8_6_THEME_TAP_FIX_PATCH/. ~/storage/downloads/M4X-APP-NEW-RUST/
+cd ~/storage/downloads/M4X-APP-NEW-RUST
+git status --short
+git add -A
+git commit -m "Fix theme tabs and card taps v3.8.6"
+git push origin main

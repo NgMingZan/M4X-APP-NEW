@@ -844,6 +844,7 @@ private fun HomeScreen(
     var themes by remember { mutableStateOf<List<ThemeItem>>(emptyList()) }
     var query by remember { mutableStateOf("") }
     var category by remember { mutableStateOf("Tất cả") }
+    var themeTab by remember { mutableStateOf("Trên máy") }
     var events by remember { mutableStateOf<List<EventItem>>(emptyList()) }
     var downloadingThemeId by remember { mutableStateOf<String?>(null) }
     var purchasingThemeId by remember { mutableStateOf<String?>(null) }
@@ -865,7 +866,12 @@ private fun HomeScreen(
             }
     }
 
-    val filtered = themes.filter {
+    val tabThemes = when (themeTab) {
+        "Đặt hàng" -> themes.filter { it.id in purchasedThemeIds }
+        "Ưa thích", "Thích" -> emptyList()
+        else -> themes
+    }
+    val filtered = tabThemes.filter {
         (query.isBlank() || it.title.contains(query, true)) &&
             (category == "Tất cả" || it.category.contains(category, true))
     }
@@ -1119,9 +1125,20 @@ private fun HomeScreen(
                     Modifier.horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    listOf("Trên máy", "Ưa thích", "Thích", "Đặt hàng").forEachIndexed { index, tab ->
-                        val selectedTab = index == 0
+                    listOf("Trên máy", "Ưa thích", "Thích", "Đặt hàng").forEach { tab ->
+                        val selectedTab = themeTab == tab
                         Surface(
+                            modifier = Modifier.clickable {
+                                themeTab = tab
+                                onMessage(
+                                    when (tab) {
+                                        "Đặt hàng" -> "Đang xem theme đã sở hữu"
+                                        "Ưa thích" -> "Mục Ưa thích chưa có theme"
+                                        "Thích" -> "Mục Thích chưa có theme"
+                                        else -> "Đang xem tất cả theme"
+                                    }
+                                )
+                            },
                             color = if (selectedTab) {
                                 MaterialTheme.colorScheme.surfaceVariant
                             } else {
@@ -1130,7 +1147,11 @@ private fun HomeScreen(
                             shape = RoundedCornerShape(16.dp),
                             border = BorderStroke(
                                 1.dp,
-                                MaterialTheme.colorScheme.outline.copy(alpha = .45f)
+                                if (selectedTab) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.outline.copy(alpha = .45f)
+                                }
                             )
                         ) {
                             Text(
@@ -1166,7 +1187,21 @@ private fun HomeScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
-        if (filtered.isEmpty()) item { EmptyState("Chưa có theme", "Theme được duyệt sẽ xuất hiện ở đây") }
+        if (filtered.isEmpty()) item {
+            EmptyState(
+                when (themeTab) {
+                    "Đặt hàng" -> "Chưa có theme đã sở hữu"
+                    "Ưa thích" -> "Chưa có theme yêu thích"
+                    "Thích" -> "Chưa có theme đã thích"
+                    else -> "Chưa có theme"
+                },
+                when (themeTab) {
+                    "Đặt hàng" -> "Theme đã mua sẽ xuất hiện ở đây"
+                    "Ưa thích", "Thích" -> "Bấm vào theme để thêm vào mục này"
+                    else -> "Theme được duyệt sẽ xuất hiện ở đây"
+                }
+            )
+        }
         else items(filtered.chunked(3)) { row ->
             Row(
                 Modifier.fillMaxWidth(),
@@ -1206,10 +1241,9 @@ private fun ThemeCard(
 ) {
     val authorName = themeAuthorName(theme)
     ElevatedCard(
+        onClick = onViewDetails,
         shape = RoundedCornerShape(22.dp),
-        modifier = modifier
-            .height(236.dp)
-            .clickable(onClick = onViewDetails),
+        modifier = modifier.height(236.dp),
         colors = CardDefaults.elevatedCardColors(
             containerColor = Color(0xFF101010)
         )
@@ -1301,6 +1335,12 @@ private fun ThemeCard(
                     style = MaterialTheme.typography.bodySmall,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    "Chạm để xem",
+                    color = Color.White.copy(alpha = .62f),
+                    style = MaterialTheme.typography.labelSmall,
+                    maxLines = 1
                 )
             }
         }

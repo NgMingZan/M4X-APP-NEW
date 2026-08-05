@@ -1,9 +1,9 @@
 {
-  "versionCode": 63,
-  "versionName": "3.8.5",
+  "versionCode": 64,
+  "versionName": "3.8.6",
   "apkUrl": "https://github.com/NgMingZan/M4X-APP-NEW/releases/latest/download/M4X-Theme.apk",
-  "title": "M4X Theme v3.8.5 — Sửa lỗi build giao diện Theme",
-  "message": "Sửa lỗi cú pháp QuestHub làm GitHub Actions không biên dịch được bản giao diện Theme kiểu video. Giữ nguyên lưới 3 cột, trang chi tiết nền đen, ảnh vuốt ngang và tên tác giả.",
+  "title": "M4X Theme v3.8.6 — Sửa lỗi không bấm được Theme",
+  "message": "Sửa các tab Trên máy/Ưa thích/Thích/Đặt hàng và thẻ theme không nhận chạm. Toàn bộ thẻ giờ dùng ElevatedCard onClick và mở trang chi tiết ổn định.",
   "forceUpdate": false,
   "notes": "Không cần SQL mới. Dùng lại dữ liệu theme hiện có; tên tác giả lấy từ metadata của theme."
 }

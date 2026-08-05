@@ -1,0 +1,13 @@
+M4X Theme v3.8.6 validation
+
+PASS: versionCode 64
+PASS: versionName 3.8.6
+PASS: theme tab state
+PASS: tabs clickable
+PASS: card uses onClick overload
+PASS: detail flow preserved
+PASS: theme grid preserved
+PASS: author preserved
+PASS: braces balanced
+
+Android build still requires GitHub Actions confirmation.
