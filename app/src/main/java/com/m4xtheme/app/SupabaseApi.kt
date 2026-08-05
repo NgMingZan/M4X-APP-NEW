@@ -674,6 +674,19 @@ class SupabaseApi(private val context: Context) {
         execute(base("${SupabaseConfig.url}/rest/v1/rpc/purchase_theme", session).post(body.toString().toRequestBody(jsonType)).build())
     }
 
+    suspend fun purchasedThemeIds(session: Session): Result<Set<String>> = io {
+        val rows = get(
+            "/rest/v1/theme_purchases?user_id=eq.${session.userId}&select=theme_id",
+            session
+        )
+        val ids = mutableSetOf<String>()
+        repeat(rows.length()) {
+            val themeId = rows.getJSONObject(it).optString("theme_id")
+            if (themeId.isNotBlank()) ids += themeId
+        }
+        ids
+    }
+
     suspend fun activeEvents(session: Session): Result<List<EventItem>> = io {
         parseEvents(get("/rest/v1/events?active=eq.true&select=*&order=start_at.desc", session))
     }

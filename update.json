@@ -1,9 +1,9 @@
 {
-  "versionCode": 60,
-  "versionName": "3.8.2",
+  "versionCode": 61,
+  "versionName": "3.8.3",
   "apkUrl": "https://github.com/NgMingZan/M4X-APP-NEW/releases/latest/download/M4X-Theme.apk",
-  "title": "M4X Theme v3.8.2 — Trang chi tiết Theme",
-  "message": "Thẻ theme chỉ mở trang chi tiết; nút Mua/Tải được chuyển vào trang chi tiết có ảnh, mô tả, hệ điều hành, độ an toàn và thông tin xác minh.",
+  "title": "M4X Theme v3.8.3 — Mua rồi mới tải Theme",
+  "message": "Luồng mới: Danh sách theme → Xem chi tiết → Vuốt toàn bộ ảnh → Mua bằng M4X Coin → Tải theme. Theme đã mua được lưu trong thư viện tài khoản.",
   "forceUpdate": false,
-  "notes": "Không cần SQL mới. Đây là cập nhật giao diện và luồng mua theme."
+  "notes": "Không cần SQL mới. Sử dụng bảng theme_purchases hiện có để kiểm tra quyền tải."
 }

@@ -36,6 +36,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -60,6 +62,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.FileProvider
 import coil.compose.AsyncImage
 import com.m4xtheme.app.rust.RustThemeValidator
@@ -841,97 +844,165 @@ private fun HomeScreen(
     var category by remember { mutableStateOf("Tất cả") }
     var events by remember { mutableStateOf<List<EventItem>>(emptyList()) }
     var downloadingThemeId by remember { mutableStateOf<String?>(null) }
-    var selectedTheme by remember { mutableStateOf<ThemeItem?>(null) }
-    LaunchedEffect(Unit) {
-        api.approvedThemes(session).onSuccess { themes = it }.onFailure { onMessage(it.message ?: "Lỗi tải theme") }
-        api.activeEvents(session).onSuccess { events = it }
+    var purchasingThemeId by remember { mutableStateOf<String?>(null) }
+    var purchasedThemeIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var coinBalance by remember(profile?.points) {
+        mutableStateOf(profile?.points ?: 0L)
     }
-    val filtered = themes.filter { (query.isBlank() || it.title.contains(query, true)) && (category == "Tất cả" || it.category.contains(category, true)) }
+    var selectedTheme by remember { mutableStateOf<ThemeItem?>(null) }
+
+    LaunchedEffect(Unit) {
+        api.approvedThemes(session)
+            .onSuccess { themes = it }
+            .onFailure { onMessage(it.message ?: "Lỗi tải theme") }
+        api.activeEvents(session).onSuccess { events = it }
+        api.purchasedThemeIds(session)
+            .onSuccess { purchasedThemeIds = it }
+            .onFailure {
+                onMessage(it.message ?: "Không thể tải thư viện theme đã mua")
+            }
+    }
+
+    val filtered = themes.filter {
+        (query.isBlank() || it.title.contains(query, true)) &&
+            (category == "Tất cả" || it.category.contains(category, true))
+    }
 
     selectedTheme?.let { theme ->
+        val purchased = theme.id in purchasedThemeIds
         ThemeDetailDialog(
             theme = theme,
-            currentCoin = profile?.points ?: 0L,
+            currentCoin = coinBalance,
+            purchased = purchased,
+            purchasing = purchasingThemeId == theme.id,
             downloading = downloadingThemeId == theme.id,
             onDismiss = {
-                if (downloadingThemeId == null) selectedTheme = null
+                if (downloadingThemeId == null && purchasingThemeId == null) {
+                    selectedTheme = null
+                }
             },
             onBuy = {
                 scope.launch {
-                    if ((profile?.points ?: 0) < theme.coinPrice) {
+                    if (purchased) {
+                        onMessage("Theme này đã thuộc thư viện của bạn")
+                        return@launch
+                    }
+                    if (coinBalance < theme.coinPrice) {
                         onMessage("Bạn chưa đủ ${theme.coinPrice} M4X COIN")
                         return@launch
                     }
 
+                    purchasingThemeId = theme.id
                     api.purchaseTheme(session, theme.id)
                         .onSuccess {
-                            if (theme.fileUrl.isBlank()) {
-                                if (theme.driveUrl.isNotBlank()) {
-                                    context.startActivity(
-                                        Intent(
-                                            Intent.ACTION_VIEW,
-                                            Uri.parse(theme.driveUrl)
-                                        )
-                                    )
-                                    onMessage(
-                                        "Link Drive mở bên ngoài nên chưa thể xác minh SHA-256 tự động"
-                                    )
-                                    selectedTheme = null
+                            purchasedThemeIds = purchasedThemeIds + theme.id
+                            coinBalance = (coinBalance - theme.coinPrice)
+                                .coerceAtLeast(0L)
+                            onMessage(
+                                if (theme.coinPrice > 0) {
+                                    "Mua theme thành công. Bây giờ bạn có thể tải xuống."
                                 } else {
-                                    onMessage("Theme chưa có nguồn tải")
+                                    "Đã thêm theme miễn phí vào thư viện. Bây giờ bạn có thể tải xuống."
                                 }
-                                return@onSuccess
-                            }
-
-                            val expectedSha256 =
-                                theme.approvedFileSha256.ifBlank {
-                                    theme.clientFileSha256
-                                }
-                            val canVerify = expectedSha256.matches(
-                                Regex("^[0-9a-fA-F]{64}$")
                             )
-
-                            if (!canVerify) {
-                                onMessage(
-                                    "Theme chưa có SHA-256 hợp lệ; đang mở nguồn tải ngoài"
-                                )
-                                context.startActivity(
-                                    Intent(
-                                        Intent.ACTION_VIEW,
-                                        Uri.parse(theme.fileUrl)
-                                    )
-                                )
-                                selectedTheme = null
-                                return@onSuccess
-                            }
-
-                            downloadingThemeId = theme.id
-                            downloadAndVerifyTheme(
-                                context = context,
-                                theme = theme,
-                                onProgress = { }
-                            ).onSuccess { verifiedFile ->
-                                onMessage(
-                                    "Đã tải và xác minh đúng SHA-256 của bản được duyệt"
-                                )
-                                runCatching {
-                                    openVerifiedTheme(context, verifiedFile)
-                                }.onFailure {
-                                    onMessage(
-                                        "File đã xác minh và lưu trong thư mục M4XThemes"
-                                    )
-                                }
-                                selectedTheme = null
-                            }.onFailure {
-                                onMessage(
-                                    it.message ?: "Không thể xác minh file theme"
-                                )
-                            }
-                            downloadingThemeId = null
                         }
                         .onFailure {
                             onMessage(it.message ?: "Không thể mua theme")
                         }
+                    purchasingThemeId = null
+                }
+            },
+            onDownload = {
+                scope.launch {
+                    if (theme.id !in purchasedThemeIds) {
+                        onMessage("Bạn cần mua hoặc nhận theme trước khi tải")
+                        return@launch
+                    }
+
+                    if (theme.fileUrl.isBlank()) {
+                        if (theme.driveUrl.isNotBlank()) {
+                            context.startActivity(
+                                Intent(
+                                    Intent.ACTION_VIEW,
+                                    Uri.parse(theme.driveUrl)
+                                )
+                            )
+                            api.incrementDownload(session, theme.id)
+                            themes = themes.map {
+                                if (it.id == theme.id) {
+                                    it.copy(downloads = it.downloads + 1)
+                                } else {
+                                    it
+                                }
+                            }
+                            onMessage(
+                                "Đã mở nguồn tải Drive. File ngoài chưa thể xác minh SHA-256 tự động."
+                            )
+                        } else {
+                            onMessage("Theme chưa có nguồn tải")
+                        }
+                        return@launch
+                    }
+
+                    val expectedSha256 =
+                        theme.approvedFileSha256.ifBlank {
+                            theme.clientFileSha256
+                        }
+                    val canVerify = expectedSha256.matches(
+                        Regex("^[0-9a-fA-F]{64}$")
+                    )
+
+                    if (!canVerify) {
+                        context.startActivity(
+                            Intent(
+                                Intent.ACTION_VIEW,
+                                Uri.parse(theme.fileUrl)
+                            )
+                        )
+                        api.incrementDownload(session, theme.id)
+                        themes = themes.map {
+                            if (it.id == theme.id) {
+                                it.copy(downloads = it.downloads + 1)
+                            } else {
+                                it
+                            }
+                        }
+                        onMessage(
+                            "Đã mở nguồn tải ngoài. Theme chưa có SHA-256 hợp lệ."
+                        )
+                        return@launch
+                    }
+
+                    downloadingThemeId = theme.id
+                    downloadAndVerifyTheme(
+                        context = context,
+                        theme = theme,
+                        onProgress = { }
+                    ).onSuccess { verifiedFile ->
+                        api.incrementDownload(session, theme.id)
+                        themes = themes.map {
+                            if (it.id == theme.id) {
+                                it.copy(downloads = it.downloads + 1)
+                            } else {
+                                it
+                            }
+                        }
+                        onMessage(
+                            "Đã tải và xác minh đúng SHA-256 của bản được duyệt"
+                        )
+                        runCatching {
+                            openVerifiedTheme(context, verifiedFile)
+                        }.onFailure {
+                            onMessage(
+                                "File đã xác minh và lưu trong thư mục M4XThemes"
+                            )
+                        }
+                    }.onFailure {
+                        onMessage(
+                            it.message ?: "Không thể xác minh file theme"
+                        )
+                    }
+                    downloadingThemeId = null
                 }
             }
         )
@@ -947,7 +1018,7 @@ private fun HomeScreen(
                         Text(config.homeBannerSubtitle)
                         Spacer(Modifier.height(18.dp))
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            MetricPill(Icons.Default.Paid, "${profile?.points ?: 0} COIN")
+                            MetricPill(Icons.Default.Paid, "$coinBalance COIN")
                             MetricPill(Icons.Default.Download, "${themes.sumOf { it.downloads }} lượt tải")
                         }
                     }
@@ -1038,11 +1109,12 @@ private fun HomeScreen(
                 listOf("Tất cả", "HyperOS", "MIUI", "Lockscreen", "Icons", "Control Center").forEach { FilterChip(selected = category == it, onClick = { category = it }, label = { Text(it) }) }
             }
         }
-        item { SectionTitle("Theme nổi bật", "Mua bằng M4X COIN hoặc tải miễn phí") }
+        item { SectionTitle("Danh sách theme", "Chạm vào theme để xem chi tiết và vuốt toàn bộ ảnh") }
         if (filtered.isEmpty()) item { EmptyState("Chưa có theme", "Theme được duyệt sẽ xuất hiện ở đây") }
         else items(filtered, key = { it.id }) { theme ->
             ThemeCard(
                 theme = theme,
+                purchased = theme.id in purchasedThemeIds,
                 onViewDetails = {
                     selectedTheme = theme
                     scope.launch {
@@ -1061,6 +1133,7 @@ private fun HomeScreen(
 @Composable
 private fun ThemeCard(
     theme: ThemeItem,
+    purchased: Boolean,
     onViewDetails: () -> Unit
 ) {
     ElevatedCard(
@@ -1105,6 +1178,34 @@ private fun ThemeCard(
                         Modifier.padding(10.dp),
                         fontWeight = FontWeight.Bold
                     )
+                }
+                if (purchased) {
+                    Surface(
+                        color = Color(0xFF20B486).copy(alpha = .94f),
+                        shape = RoundedCornerShape(bottomStart = 16.dp),
+                        modifier = Modifier.align(Alignment.TopEnd)
+                    ) {
+                        Row(
+                            Modifier.padding(
+                                horizontal = 10.dp,
+                                vertical = 8.dp
+                            ),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                Icons.Default.CheckCircle,
+                                null,
+                                Modifier.size(17.dp),
+                                tint = Color.White
+                            )
+                            Spacer(Modifier.width(5.dp))
+                            Text(
+                                "Đã sở hữu",
+                                color = Color.White,
+                                fontWeight = FontWeight.Black
+                            )
+                        }
+                    }
                 }
             }
             Column(
@@ -1152,79 +1253,156 @@ private fun ThemeCard(
 private fun ThemeDetailDialog(
     theme: ThemeItem,
     currentCoin: Long,
+    purchased: Boolean,
+    purchasing: Boolean,
     downloading: Boolean,
     onDismiss: () -> Unit,
-    onBuy: () -> Unit
+    onBuy: () -> Unit,
+    onDownload: () -> Unit
 ) {
     val previews = remember(theme.id, theme.previewUrl, theme.previewUrls) {
         (listOf(theme.previewUrl) + theme.previewUrls)
             .filter { it.isNotBlank() }
             .distinct()
     }
+    val pagerState = rememberPagerState(
+        initialPage = 0,
+        pageCount = { previews.size.coerceAtLeast(1) }
+    )
+    val busy = purchasing || downloading
 
-    Dialog(onDismissRequest = onDismiss) {
+    Dialog(
+        onDismissRequest = {
+            if (!busy) onDismiss()
+        },
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = false
+        )
+    ) {
         Surface(
             modifier = Modifier
-                .fillMaxWidth()
-                .fillMaxHeight(.92f),
-            shape = RoundedCornerShape(28.dp),
+                .fillMaxSize()
+                .padding(top = 18.dp),
+            shape = RoundedCornerShape(
+                topStart = 30.dp,
+                topEnd = 30.dp
+            ),
             color = MaterialTheme.colorScheme.surface
         ) {
             Column {
                 Box(
                     Modifier
                         .fillMaxWidth()
-                        .height(235.dp)
+                        .height(330.dp)
                         .background(MaterialTheme.colorScheme.surfaceVariant)
                 ) {
                     if (previews.isNotEmpty()) {
-                        AsyncImage(
-                            previews.first(),
-                            theme.title,
-                            contentScale = ContentScale.Crop,
+                        HorizontalPager(
+                            state = pagerState,
                             modifier = Modifier.fillMaxSize()
-                        )
+                        ) { page ->
+                            AsyncImage(
+                                previews[page],
+                                "${theme.title} ${page + 1}",
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
                     } else {
                         Icon(
                             Icons.Default.Palette,
                             null,
-                            Modifier.size(72.dp).align(Alignment.Center),
+                            Modifier
+                                .size(84.dp)
+                                .align(Alignment.Center),
                             tint = MaterialTheme.colorScheme.primary
                         )
                     }
+
                     IconButton(
                         onClick = onDismiss,
-                        enabled = !downloading,
+                        enabled = !busy,
                         modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(10.dp)
+                            .align(Alignment.TopStart)
+                            .padding(12.dp)
                             .background(
                                 Color.Black.copy(alpha = .58f),
                                 CircleShape
                             )
                     ) {
-                        Icon(Icons.Default.Close, null, tint = Color.White)
+                        Icon(
+                            Icons.Default.ArrowBack,
+                            null,
+                            tint = Color.White
+                        )
                     }
+
                     Surface(
                         modifier = Modifier
-                            .align(Alignment.BottomStart)
-                            .padding(14.dp),
-                        color = Color.Black.copy(alpha = .70f),
+                            .align(Alignment.TopEnd)
+                            .padding(12.dp),
+                        color = if (purchased) {
+                            Color(0xFF19A97D).copy(alpha = .94f)
+                        } else {
+                            Color.Black.copy(alpha = .70f)
+                        },
                         shape = RoundedCornerShape(16.dp)
                     ) {
                         Text(
-                            if (theme.coinPrice > 0) {
-                                "${theme.coinPrice} M4X COIN"
-                            } else {
-                                "TẢI MIỄN PHÍ"
+                            when {
+                                purchased -> "ĐÃ SỞ HỮU"
+                                theme.coinPrice > 0 ->
+                                    "${theme.coinPrice} M4X COIN"
+                                else -> "MIỄN PHÍ"
                             },
                             modifier = Modifier.padding(
-                                horizontal = 14.dp,
+                                horizontal = 13.dp,
                                 vertical = 9.dp
                             ),
                             color = Color.White,
                             fontWeight = FontWeight.Black
                         )
+                    }
+
+                    if (previews.size > 1) {
+                        Surface(
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .padding(bottom = 14.dp),
+                            color = Color.Black.copy(alpha = .48f),
+                            shape = CircleShape
+                        ) {
+                            Row(
+                                Modifier.padding(
+                                    horizontal = 11.dp,
+                                    vertical = 7.dp
+                                ),
+                                horizontalArrangement =
+                                    Arrangement.spacedBy(6.dp)
+                            ) {
+                                previews.indices.forEach { index ->
+                                    Box(
+                                        Modifier
+                                            .size(
+                                                if (pagerState.currentPage == index) {
+                                                    9.dp
+                                                } else {
+                                                    7.dp
+                                                }
+                                            )
+                                            .background(
+                                                if (pagerState.currentPage == index) {
+                                                    Color.White
+                                                } else {
+                                                    Color.White.copy(alpha = .45f)
+                                                },
+                                                CircleShape
+                                            )
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
 
@@ -1248,6 +1426,25 @@ private fun ThemeDetailDialog(
                         )
                     }
 
+                    if (previews.size > 1) {
+                        item {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    Icons.Default.Swipe,
+                                    null,
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    "Vuốt ảnh sang trái hoặc phải để xem toàn bộ ${previews.size} ảnh",
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+
                     item {
                         Row(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -1257,7 +1454,9 @@ private fun ThemeDetailDialog(
                         ) {
                             AssistChip(
                                 onClick = { },
-                                label = { Text(theme.category.ifBlank { "Theme" }) },
+                                label = {
+                                    Text(theme.category.ifBlank { "Theme" })
+                                },
                                 leadingIcon = {
                                     Icon(Icons.Default.Category, null)
                                 }
@@ -1265,7 +1464,11 @@ private fun ThemeDetailDialog(
                             AssistChip(
                                 onClick = { },
                                 label = {
-                                    Text(theme.osVersion.ifBlank { "MIUI/HyperOS" })
+                                    Text(
+                                        theme.osVersion.ifBlank {
+                                            "MIUI/HyperOS"
+                                        }
+                                    )
                                 },
                                 leadingIcon = {
                                     Icon(Icons.Default.PhoneAndroid, null)
@@ -1274,7 +1477,9 @@ private fun ThemeDetailDialog(
                             AssistChip(
                                 onClick = { },
                                 label = {
-                                    Text("${"%.1f".format(theme.rating)} sao")
+                                    Text(
+                                        "${"%.1f".format(theme.rating)} sao"
+                                    )
                                 },
                                 leadingIcon = {
                                     Icon(Icons.Default.Star, null)
@@ -1282,7 +1487,9 @@ private fun ThemeDetailDialog(
                             )
                             AssistChip(
                                 onClick = { },
-                                label = { Text("${theme.downloads} lượt tải") },
+                                label = {
+                                    Text("${theme.downloads} lượt tải")
+                                },
                                 leadingIcon = {
                                     Icon(Icons.Default.Download, null)
                                 }
@@ -1290,47 +1497,22 @@ private fun ThemeDetailDialog(
                         }
                     }
 
-                    if (previews.size > 1) {
-                        item {
-                            Text(
-                                "Ảnh xem trước",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Black
-                            )
-                            Spacer(Modifier.height(8.dp))
-                            Row(
-                                Modifier.horizontalScroll(rememberScrollState()),
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
-                            ) {
-                                previews.forEach { url ->
-                                    AsyncImage(
-                                        url,
-                                        theme.title,
-                                        contentScale = ContentScale.Crop,
-                                        modifier = Modifier
-                                            .width(220.dp)
-                                            .height(135.dp)
-                                            .clip(RoundedCornerShape(18.dp))
-                                            .background(
-                                                MaterialTheme.colorScheme.surfaceVariant
-                                            )
-                                    )
-                                }
-                            }
-                        }
-                    }
-
                     item {
                         ElevatedCard(shape = RoundedCornerShape(20.dp)) {
                             Column(
                                 Modifier.padding(15.dp),
-                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                                verticalArrangement =
+                                    Arrangement.spacedBy(8.dp)
                             ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                Row(
+                                    verticalAlignment =
+                                        Alignment.CenterVertically
+                                ) {
                                     Icon(
                                         Icons.Default.Verified,
                                         null,
-                                        tint = MaterialTheme.colorScheme.primary
+                                        tint =
+                                            MaterialTheme.colorScheme.primary
                                     )
                                     Spacer(Modifier.width(8.dp))
                                     Text(
@@ -1339,39 +1521,89 @@ private fun ThemeDetailDialog(
                                     )
                                 }
                                 Text(
-                                    "Hệ điều hành: ${theme.osVersion.ifBlank { "Chưa ghi rõ" }}"
+                                    "Hệ điều hành: ${
+                                        theme.osVersion.ifBlank {
+                                            "Chưa ghi rõ"
+                                        }
+                                    }"
                                 )
                                 Text(
-                                    "Mức an toàn: ${theme.clientSafetyLevel.ifBlank { "Chưa đánh giá" }}"
+                                    "Mức an toàn: ${
+                                        theme.clientSafetyLevel.ifBlank {
+                                            "Chưa đánh giá"
+                                        }
+                                    }"
                                 )
-                                Text("Điểm an toàn: ${theme.clientSafetyScore}/100")
                                 Text(
-                                    if (theme.approvedFileSha256.isNotBlank()) {
+                                    "Điểm an toàn: ${theme.clientSafetyScore}/100"
+                                )
+                                Text(
+                                    if (
+                                        theme.approvedFileSha256.isNotBlank()
+                                    ) {
                                         "File tải có xác minh SHA-256"
                                     } else {
                                         "Nguồn tải ngoài hoặc chưa có SHA-256"
                                     },
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    color =
+                                        MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
                         }
                     }
 
                     item {
-                        Text(
-                            "Số dư của bạn: $currentCoin M4X COIN",
-                            fontWeight = FontWeight.Bold,
-                            color = if (currentCoin >= theme.coinPrice) {
-                                MaterialTheme.colorScheme.primary
-                            } else {
-                                MaterialTheme.colorScheme.error
+                        if (purchased) {
+                            ElevatedCard(
+                                shape = RoundedCornerShape(20.dp),
+                                colors = CardDefaults.elevatedCardColors(
+                                    containerColor =
+                                        Color(0xFF19A97D).copy(alpha = .13f)
+                                )
+                            ) {
+                                Row(
+                                    Modifier.padding(15.dp),
+                                    verticalAlignment =
+                                        Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        Icons.Default.CheckCircle,
+                                        null,
+                                        tint = Color(0xFF15936E)
+                                    )
+                                    Spacer(Modifier.width(10.dp))
+                                    Column {
+                                        Text(
+                                            "Theme đã thuộc thư viện của bạn",
+                                            fontWeight = FontWeight.Black
+                                        )
+                                        Text(
+                                            "Bạn có thể tải lại bất cứ lúc nào.",
+                                            color =
+                                                MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
                             }
-                        )
-                        Text(
-                            "Bạn cần xem trang này trước khi mua hoặc tải theme.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                        } else {
+                            Text(
+                                "Số dư của bạn: $currentCoin M4X COIN",
+                                fontWeight = FontWeight.Bold,
+                                color = if (
+                                    currentCoin >= theme.coinPrice
+                                ) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.error
+                                }
+                            )
+                            Text(
+                                "Mua hoặc nhận theme trước. Sau khi thành công, nút này sẽ chuyển thành Tải theme.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color =
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
                 }
 
@@ -1382,43 +1614,66 @@ private fun ThemeDetailDialog(
                 ) {
                     OutlinedButton(
                         onClick = onDismiss,
-                        enabled = !downloading,
+                        enabled = !busy,
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(16.dp)
                     ) {
                         Text("Quay lại")
                     }
+
                     Button(
-                        onClick = onBuy,
-                        enabled = !downloading && currentCoin >= theme.coinPrice,
-                        modifier = Modifier.weight(1.35f),
+                        onClick = if (purchased) onDownload else onBuy,
+                        enabled = !busy && (
+                            purchased ||
+                                currentCoin >= theme.coinPrice
+                            ),
+                        modifier = Modifier.weight(1.45f),
                         shape = RoundedCornerShape(16.dp)
                     ) {
-                        if (downloading) {
-                            CircularProgressIndicator(
-                                Modifier.size(18.dp),
-                                strokeWidth = 2.dp
-                            )
-                            Spacer(Modifier.width(7.dp))
-                            Text("Đang xác minh…")
-                        } else {
-                            Icon(
-                                if (theme.coinPrice > 0) {
-                                    Icons.Default.ShoppingCart
-                                } else {
-                                    Icons.Default.Download
-                                },
-                                null,
-                                Modifier.size(18.dp)
-                            )
-                            Spacer(Modifier.width(7.dp))
-                            Text(
-                                if (theme.coinPrice > 0) {
-                                    "Mua ${theme.coinPrice} coin"
-                                } else {
-                                    "Tải theme"
-                                }
-                            )
+                        when {
+                            purchasing -> {
+                                CircularProgressIndicator(
+                                    Modifier.size(18.dp),
+                                    strokeWidth = 2.dp
+                                )
+                                Spacer(Modifier.width(7.dp))
+                                Text("Đang mua…")
+                            }
+                            downloading -> {
+                                CircularProgressIndicator(
+                                    Modifier.size(18.dp),
+                                    strokeWidth = 2.dp
+                                )
+                                Spacer(Modifier.width(7.dp))
+                                Text("Đang tải…")
+                            }
+                            purchased -> {
+                                Icon(
+                                    Icons.Default.Download,
+                                    null,
+                                    Modifier.size(19.dp)
+                                )
+                                Spacer(Modifier.width(7.dp))
+                                Text("Tải theme")
+                            }
+                            theme.coinPrice > 0 -> {
+                                Icon(
+                                    Icons.Default.ShoppingCart,
+                                    null,
+                                    Modifier.size(19.dp)
+                                )
+                                Spacer(Modifier.width(7.dp))
+                                Text("Mua ${theme.coinPrice} coin")
+                            }
+                            else -> {
+                                Icon(
+                                    Icons.Default.AddCircle,
+                                    null,
+                                    Modifier.size(19.dp)
+                                )
+                                Spacer(Modifier.width(7.dp))
+                                Text("Nhận miễn phí")
+                            }
                         }
                     }
                 }

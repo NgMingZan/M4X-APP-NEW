@@ -1,0 +1,20 @@
+M4X Theme v3.8.3 validation
+
+PASS: versionCode 61
+PASS: versionName 3.8.3
+PASS: HorizontalPager
+PASS: rememberPagerState
+PASS: separate onBuy
+PASS: separate onDownload
+PASS: purchased state
+PASS: ownership API
+PASS: server purchase table
+PASS: download only after purchase
+PASS: download label
+PASS: no old combined dialog signature
+PASS: Kotlin braces balanced in MainActivity.kt
+PASS: Kotlin braces balanced in SupabaseApi.kt
+PASS: no new SQL required
+
+Android/Compose compilation still requires GitHub Actions confirmation.
+PASS: ownership parser uses explicit mutable set

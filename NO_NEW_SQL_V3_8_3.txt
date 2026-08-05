@@ -1,0 +1,1 @@
+Không cần SQL mới. Bản này dùng bảng public.theme_purchases đã có.
