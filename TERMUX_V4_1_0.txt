@@ -1,0 +1,8 @@
+cd ~/storage/downloads
+unzip -o M4X_V4_1_0_THEME_RATINGS_COMMENTS_PATCH.zip
+cp -afv M4X_V4_1_0_THEME_RATINGS_COMMENTS_PATCH/. ~/storage/downloads/M4X-APP-NEW-RUST/
+cd ~/storage/downloads/M4X-APP-NEW-RUST
+git status --short
+git add -A
+git commit -m "Add theme ratings and comments v4.1.0"
+git push origin main

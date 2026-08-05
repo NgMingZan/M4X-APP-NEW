@@ -959,9 +959,15 @@ private fun HomeScreen(
     selectedTheme?.let { theme ->
         val purchased = theme.id in purchasedThemeIds
         ThemeDetailDialog(
+            api = api,
+            session = session,
             theme = theme,
             currentCoin = coinBalance,
             purchased = purchased,
+            canModerate = profile?.role in setOf(
+                "admin",
+                "super_admin"
+            ),
             purchasing = purchasingThemeId == theme.id,
             downloading = downloadingThemeId == theme.id,
             onDismiss = {
@@ -1007,6 +1013,23 @@ private fun HomeScreen(
                     purchasingThemeId = null
                 }
             },
+            onRatingChanged = { average ->
+                themes = themes.map {
+                    if (it.id == theme.id) {
+                        it.copy(rating = average)
+                    } else {
+                        it
+                    }
+                }
+                selectedTheme = selectedTheme?.let {
+                    if (it.id == theme.id) {
+                        it.copy(rating = average)
+                    } else {
+                        it
+                    }
+                }
+            },
+            onMessage = onMessage,
             onDownload = {
                 scope.launch {
                     if (theme.id !in purchasedThemeIds) {
@@ -1554,13 +1577,18 @@ private fun ThemeCard(
 
 @Composable
 private fun ThemeDetailDialog(
+    api: SupabaseApi,
+    session: Session,
     theme: ThemeItem,
     currentCoin: Long,
     purchased: Boolean,
+    canModerate: Boolean,
     purchasing: Boolean,
     downloading: Boolean,
     onDismiss: () -> Unit,
     onBuy: () -> Unit,
+    onRatingChanged: (Double) -> Unit,
+    onMessage: (String) -> Unit,
     onDownload: () -> Unit
 ) {
     val previews = remember(theme.id, theme.previewUrl, theme.previewUrls) {
@@ -1770,6 +1798,19 @@ private fun ThemeDetailDialog(
                                 }
                             }
                         }
+                    }
+
+                    item {
+                        ThemeCommunitySection(
+                            api = api,
+                            session = session,
+                            themeId = theme.id,
+                            purchased = purchased,
+                            canModerate = canModerate,
+                            initialRating = theme.rating,
+                            onRatingChanged = onRatingChanged,
+                            onMessage = onMessage
+                        )
                     }
 
                     item {

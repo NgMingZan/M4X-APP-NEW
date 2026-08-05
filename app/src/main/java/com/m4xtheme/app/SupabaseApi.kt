@@ -73,6 +73,26 @@ data class ThemePurchaseResult(
     val alreadyOwned: Boolean
 )
 
+data class ThemeCommunityReview(
+    val id: String,
+    val themeId: String,
+    val userId: String,
+    val displayName: String,
+    val username: String,
+    val avatarUrl: String,
+    val stars: Int,
+    val comment: String,
+    val hidden: Boolean,
+    val mine: Boolean,
+    val createdAt: String,
+    val updatedAt: String
+)
+
+data class ThemeCommunitySummary(
+    val averageRating: Double,
+    val reviewCount: Int
+)
+
 
 data class ThemeReviewChecklist(
     val previewOk: Boolean = false,
@@ -798,6 +818,157 @@ class SupabaseApi(private val context: Context) {
                 )
             }
             parseThemes(JSONArray(text))
+        }
+    }
+
+    suspend fun themeCommunitySummary(
+        session: Session,
+        themeId: String
+    ): Result<ThemeCommunitySummary> = io {
+        val body = JSONObject()
+            .put("p_theme_id", themeId)
+            .toString()
+            .toRequestBody(jsonType)
+
+        val request = base(
+            "${SupabaseConfig.url}/rest/v1/rpc/get_theme_review_summary",
+            session
+        ).post(body).build()
+
+        http.newCall(request).execute().use { response ->
+            val text = response.body?.string().orEmpty()
+            if (!response.isSuccessful) {
+                throw IOException(
+                    error(
+                        text,
+                        "Không tải được tổng hợp đánh giá (${response.code})"
+                    )
+                )
+            }
+            val o = rpcObject(text)
+            ThemeCommunitySummary(
+                averageRating = o.optDouble("average_rating", 0.0),
+                reviewCount = o.optInt("review_count", 0)
+            )
+        }
+    }
+
+    suspend fun themeCommunityReviews(
+        session: Session,
+        themeId: String
+    ): Result<List<ThemeCommunityReview>> = io {
+        val body = JSONObject()
+            .put("p_theme_id", themeId)
+            .toString()
+            .toRequestBody(jsonType)
+
+        val request = base(
+            "${SupabaseConfig.url}/rest/v1/rpc/get_theme_community_reviews",
+            session
+        ).post(body).build()
+
+        http.newCall(request).execute().use { response ->
+            val text = response.body?.string().orEmpty()
+            if (!response.isSuccessful) {
+                throw IOException(
+                    error(
+                        text,
+                        "Không tải được bình luận (${response.code})"
+                    )
+                )
+            }
+
+            val rows = JSONArray(text)
+            List(rows.length()) { index ->
+                val o = rows.getJSONObject(index)
+                ThemeCommunityReview(
+                    id = o.optString("review_id"),
+                    themeId = o.optString("theme_id"),
+                    userId = o.optString("user_id"),
+                    displayName = o.optString("display_name")
+                        .ifBlank { "Người dùng M4X" },
+                    username = o.optString("username"),
+                    avatarUrl = o.optString("avatar_url"),
+                    stars = o.optInt("stars").coerceIn(1, 5),
+                    comment = o.optString("comment"),
+                    hidden = o.optBoolean("hidden"),
+                    mine = o.optBoolean("is_mine"),
+                    createdAt = o.optString("created_at"),
+                    updatedAt = o.optString("updated_at")
+                )
+            }
+        }
+    }
+
+    suspend fun submitThemeCommunityReview(
+        session: Session,
+        themeId: String,
+        stars: Int,
+        comment: String
+    ): Result<ThemeCommunitySummary> = io {
+        require(stars in 1..5) {
+            "Số sao phải từ 1 đến 5"
+        }
+        require(comment.length <= 600) {
+            "Bình luận tối đa 600 ký tự"
+        }
+
+        val body = JSONObject()
+            .put("p_theme_id", themeId)
+            .put("p_stars", stars)
+            .put("p_comment", comment.trim())
+            .toString()
+            .toRequestBody(jsonType)
+
+        val request = base(
+            "${SupabaseConfig.url}/rest/v1/rpc/submit_theme_community_review",
+            session
+        ).post(body).build()
+
+        http.newCall(request).execute().use { response ->
+            val text = response.body?.string().orEmpty()
+            if (!response.isSuccessful) {
+                throw IOException(
+                    error(
+                        text,
+                        "Không thể gửi đánh giá (${response.code})"
+                    )
+                )
+            }
+            val o = rpcObject(text)
+            ThemeCommunitySummary(
+                averageRating = o.optDouble("average_rating", 0.0),
+                reviewCount = o.optInt("review_count", 0)
+            )
+        }
+    }
+
+    suspend fun moderateThemeCommunityReview(
+        session: Session,
+        reviewId: String,
+        hidden: Boolean
+    ): Result<Unit> = io {
+        val body = JSONObject()
+            .put("p_review_id", reviewId)
+            .put("p_hidden", hidden)
+            .toString()
+            .toRequestBody(jsonType)
+
+        val request = base(
+            "${SupabaseConfig.url}/rest/v1/rpc/moderate_theme_community_review",
+            session
+        ).post(body).build()
+
+        http.newCall(request).execute().use { response ->
+            val text = response.body?.string().orEmpty()
+            if (!response.isSuccessful) {
+                throw IOException(
+                    error(
+                        text,
+                        "Không thể kiểm duyệt bình luận (${response.code})"
+                    )
+                )
+            }
         }
     }
 

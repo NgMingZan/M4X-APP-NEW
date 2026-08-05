@@ -1,9 +1,9 @@
 {
-  "versionCode": 72,
-  "versionName": "4.0.0",
+  "versionCode": 73,
+  "versionName": "4.1.0",
   "apkUrl": "https://github.com/NgMingZan/M4X-APP-NEW/releases/latest/download/M4X-Theme.apk",
-  "title": "M4X Theme v4.0.0 — Trung tâm cấu hình online",
-  "message": "Admin có thể đổi banner, thông báo, nhiệm vụ ngày, điểm danh, vòng quay, cấu hình câu cá và theme nổi bật trực tiếp trên Supabase mà không cần phát hành APK mới.",
+  "title": "M4X Theme v4.1.0 — Đánh giá và bình luận Theme",
+  "message": "Thêm đánh giá 1–5 sao và bình luận riêng cho từng theme. Người đã sở hữu theme được gửi hoặc sửa đánh giá; Admin có thể ẩn bình luận vi phạm.",
   "forceUpdate": false,
-  "notes": "Bắt buộc chạy SUPABASE_V4_0_0_ONLINE_CONTROL_CENTER.sql trước khi cài APK."
+  "notes": "Bắt buộc chạy SUPABASE_V4_1_0_THEME_RATINGS_COMMENTS.sql trước khi cài APK."
 }

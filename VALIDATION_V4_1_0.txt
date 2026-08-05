@@ -1,0 +1,28 @@
+M4X Theme v4.1.0 validation
+
+PASS: versionCode 73
+PASS: versionName 4.1.0
+PASS: layout wildcard import
+PASS: weight modifier available
+PASS: align modifier available
+PASS: community UI integrated
+PASS: purchase ownership gate
+PASS: rating callback
+PASS: summary API
+PASS: reviews API
+PASS: submit API
+PASS: moderation API
+PASS: SQL table
+PASS: one review per user
+PASS: ownership required
+PASS: pending owned theme allowed
+PASS: hidden review cannot self-unhide
+PASS: admin can restore
+PASS: rating trigger
+PASS: MainActivity braces balanced
+PASS: SupabaseApi braces balanced
+PASS: ThemeCommunity braces balanced
+
+Bắt buộc chạy SQL v4.1.0 trước APK.
+Đánh giá đã bị Admin ẩn chỉ có Admin mới hiện lại được.
+Android/Compose build vẫn cần GitHub Actions xác nhận.
