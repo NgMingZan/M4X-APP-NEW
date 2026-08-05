@@ -1670,66 +1670,93 @@ private fun ThemeDetailDialog(
                     color = Color.Black,
                     tonalElevation = 0.dp,
                     shadowElevation = 12.dp,
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .navigationBarsPadding()
                 ) {
-                    Row(
-                        Modifier
+                    Button(
+                        onClick = if (purchased) onDownload else onBuy,
+                        enabled = !busy && (
+                            purchased ||
+                                currentCoin >= theme.coinPrice
+                            ),
+                        modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 18.dp, vertical = 12.dp),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            .padding(
+                                horizontal = 18.dp,
+                                vertical = 12.dp
+                            )
+                            .heightIn(min = 54.dp),
+                        shape = RoundedCornerShape(20.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFFFFC34A),
+                            contentColor = Color.Black,
+                            disabledContainerColor =
+                                Color(0xFF594A2D),
+                            disabledContentColor =
+                                Color.White.copy(alpha = .62f)
+                        )
                     ) {
-                        OutlinedButton(
-                            onClick = onDismiss,
-                            enabled = !busy,
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(20.dp),
-                            border = BorderStroke(1.dp, Color(0xFFFFB13A))
-                        ) {
-                            Text(
-                                "Tạo",
-                                color = Color(0xFFFFB13A),
-                                fontWeight = FontWeight.Black
-                            )
-                        }
-
-                        Button(
-                            onClick = if (purchased) onDownload else onBuy,
-                            enabled = !busy && (purchased || currentCoin >= theme.coinPrice),
-                            modifier = Modifier.weight(1.4f),
-                            shape = RoundedCornerShape(20.dp),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = Color(0xFFFFC34A),
-                                contentColor = Color.Black
-                            )
-                        ) {
-                            when {
-                                purchasing -> {
-                                    CircularProgressIndicator(
-                                        Modifier.size(18.dp),
-                                        strokeWidth = 2.dp,
-                                        color = Color.Black
-                                    )
-                                    Spacer(Modifier.width(7.dp))
-                                    Text("Đang mua…", fontWeight = FontWeight.Black)
-                                }
-                                downloading -> {
-                                    CircularProgressIndicator(
-                                        Modifier.size(18.dp),
-                                        strokeWidth = 2.dp,
-                                        color = Color.Black
-                                    )
-                                    Spacer(Modifier.width(7.dp))
-                                    Text("Đang tải…", fontWeight = FontWeight.Black)
-                                }
-                                purchased -> {
-                                    Text("Tải theme", fontWeight = FontWeight.Black)
-                                }
-                                theme.coinPrice > 0 -> {
-                                    Text("Mua bằng ${theme.coinPrice} coin", fontWeight = FontWeight.Black)
-                                }
-                                else -> {
-                                    Text("Nhận miễn phí", fontWeight = FontWeight.Black)
-                                }
+                        when {
+                            purchasing -> {
+                                CircularProgressIndicator(
+                                    Modifier.size(18.dp),
+                                    strokeWidth = 2.dp,
+                                    color = Color.Black
+                                )
+                                Spacer(Modifier.width(7.dp))
+                                Text(
+                                    "Đang mua…",
+                                    fontWeight = FontWeight.Black
+                                )
+                            }
+                            downloading -> {
+                                CircularProgressIndicator(
+                                    Modifier.size(18.dp),
+                                    strokeWidth = 2.dp,
+                                    color = Color.Black
+                                )
+                                Spacer(Modifier.width(7.dp))
+                                Text(
+                                    "Đang tải…",
+                                    fontWeight = FontWeight.Black
+                                )
+                            }
+                            purchased -> {
+                                Icon(
+                                    Icons.Default.Download,
+                                    null,
+                                    Modifier.size(19.dp)
+                                )
+                                Spacer(Modifier.width(7.dp))
+                                Text(
+                                    "Tải theme",
+                                    fontWeight = FontWeight.Black
+                                )
+                            }
+                            theme.coinPrice > 0 -> {
+                                Icon(
+                                    Icons.Default.ShoppingCart,
+                                    null,
+                                    Modifier.size(19.dp)
+                                )
+                                Spacer(Modifier.width(7.dp))
+                                Text(
+                                    "Mua bằng ${theme.coinPrice} coin",
+                                    fontWeight = FontWeight.Black
+                                )
+                            }
+                            else -> {
+                                Icon(
+                                    Icons.Default.AddCircle,
+                                    null,
+                                    Modifier.size(19.dp)
+                                )
+                                Spacer(Modifier.width(7.dp))
+                                Text(
+                                    "Nhận miễn phí",
+                                    fontWeight = FontWeight.Black
+                                )
                             }
                         }
                     }

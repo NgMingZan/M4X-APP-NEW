@@ -1,0 +1,13 @@
+M4X Theme v3.8.7 validation
+
+PASS: versionCode 65
+PASS: versionName 3.8.7
+PASS: nút Tạo đã xóa
+PASS: navigation bar padding
+PASS: nút hành động toàn chiều ngang
+PASS: nút tải được giữ
+PASS: nút mua được giữ
+PASS: nút miễn phí được giữ
+PASS: Kotlin braces cân bằng
+
+Android build still requires GitHub Actions confirmation.

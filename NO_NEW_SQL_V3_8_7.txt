@@ -1,0 +1,1 @@
+Không cần SQL mới. Đây là sửa giao diện Android.

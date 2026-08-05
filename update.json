@@ -1,9 +1,9 @@
 {
-  "versionCode": 64,
-  "versionName": "3.8.6",
+  "versionCode": 65,
+  "versionName": "3.8.7",
   "apkUrl": "https://github.com/NgMingZan/M4X-APP-NEW/releases/latest/download/M4X-Theme.apk",
-  "title": "M4X Theme v3.8.6 — Sửa lỗi không bấm được Theme",
-  "message": "Sửa các tab Trên máy/Ưa thích/Thích/Đặt hàng và thẻ theme không nhận chạm. Toàn bộ thẻ giờ dùng ElevatedCard onClick và mở trang chi tiết ổn định.",
+  "title": "M4X Theme v3.8.7 — Sửa thanh nút Theme",
+  "message": "Bỏ nút Tạo không đúng chức năng, giữ một nút Mua/Nhận/Tải duy nhất và đẩy thanh thao tác lên trên thanh điều hướng của điện thoại.",
   "forceUpdate": false,
   "notes": "Không cần SQL mới. Dùng lại dữ liệu theme hiện có; tên tác giả lấy từ metadata của theme."
 }
