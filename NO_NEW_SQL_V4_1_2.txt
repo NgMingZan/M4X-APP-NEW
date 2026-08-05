@@ -1,0 +1,2 @@
+M4X Theme v4.1.2 không có SQL mới.
+Chỉ cần chép patch và build APK.

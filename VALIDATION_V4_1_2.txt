@@ -1,0 +1,16 @@
+M4X Theme v4.1.2 validation
+
+PASS: versionCode 75
+PASS: versionName 4.1.2
+PASS: full preview uses Fit
+PASS: large preview 240dp
+PASS: multiple preview selector
+PASS: compact checklist helper
+PASS: two-column checklist
+PASS: sticky bottom actions
+PASS: safety report collapsed
+PASS: custom full-width dialog
+PASS: MainActivity braces balanced
+
+Không có SQL mới.
+GitHub Actions vẫn cần build để xác nhận APK Android.

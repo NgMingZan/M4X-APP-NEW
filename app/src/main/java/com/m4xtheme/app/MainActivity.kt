@@ -3385,161 +3385,506 @@ private fun ReviewCard(
     }
 
     if (showReviewDialog) {
-        AlertDialog(
+        val reviewImages = remember(
+            t.id,
+            t.previewUrl,
+            t.previewUrls
+        ) {
+            buildList {
+                if (t.previewUrl.isNotBlank()) {
+                    add(t.previewUrl)
+                }
+                addAll(
+                    t.previewUrls.filter {
+                        it.isNotBlank()
+                    }
+                )
+            }.distinct()
+        }
+        var selectedPreviewIndex by remember(t.id) {
+            mutableIntStateOf(0)
+        }
+        var showSafetyDetails by remember(t.id) {
+            mutableStateOf(false)
+        }
+
+        Dialog(
             onDismissRequest = {
                 showReviewDialog = false
             },
-            title = {
-                Column {
-                    Text(
-                        t.title,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Text(
-                        "${t.coinPrice} M4X COIN • $validationLabel",
-                        style =
-                            MaterialTheme.typography.bodySmall,
-                        color = validationColor
-                    )
-                }
-            },
-            text = {
-                Column(
-                    Modifier.verticalScroll(
-                        rememberScrollState()
+            properties = DialogProperties(
+                usePlatformDefaultWidth = false,
+                decorFitsSystemWindows = true
+            )
+        ) {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(
+                        horizontal = 14.dp,
+                        vertical = 18.dp
                     ),
-                    verticalArrangement =
-                        Arrangement.spacedBy(10.dp)
-                ) {
-                    if (t.previewUrl.isNotBlank()) {
-                        AsyncImage(
-                            model = t.previewUrl,
-                            contentDescription = t.title,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(150.dp)
-                                .clip(
-                                    RoundedCornerShape(16.dp)
-                                )
-                        )
-                    }
-
-                    if (
-                        t.clientValidationMessage.isNotBlank()
+                shape = RoundedCornerShape(28.dp),
+                tonalElevation = 8.dp
+            ) {
+                Column {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(
+                                start = 18.dp,
+                                end = 8.dp,
+                                top = 12.dp,
+                                bottom = 8.dp
+                            ),
+                        verticalAlignment =
+                            Alignment.CenterVertically
                     ) {
-                        Text(
-                            t.clientValidationMessage,
-                            style =
-                                MaterialTheme.typography.bodySmall
-                        )
-                    }
-
-                    if (t.clientFileSizeBytes > 0L) {
-                        val sizeMb =
-                            t.clientFileSizeBytes.toDouble() /
-                                1024.0 /
-                                1024.0
-                        Text(
-                            "Dung lượng: ${
-                                java.lang.String.format(
-                                    java.util.Locale.US,
-                                    "%.2f",
-                                    sizeMb
-                                )
-                            } MB",
-                            style =
-                                MaterialTheme.typography.labelSmall
-                        )
-                    }
-
-                    AdminSafetyReport(t)
-
-                    Text(
-                        "Checklist $checklistDone/5",
-                        fontWeight = FontWeight.Black
-                    )
-                    ReviewChecklistRow(
-                        "Ảnh xem trước đầy đủ",
-                        checklist.previewOk
-                    ) {
-                        checklist =
-                            checklist.copy(previewOk = it)
-                    }
-                    ReviewChecklistRow(
-                        "Link tải/file hoạt động",
-                        checklist.downloadOk
-                    ) {
-                        checklist =
-                            checklist.copy(downloadOk = it)
-                    }
-                    ReviewChecklistRow(
-                        "Đúng MIUI/HyperOS",
-                        checklist.compatibilityOk
-                    ) {
-                        checklist =
-                            checklist.copy(
-                                compatibilityOk = it
+                        Column(
+                            Modifier.weight(1f),
+                            verticalArrangement =
+                                Arrangement.spacedBy(2.dp)
+                        ) {
+                            Text(
+                                t.title,
+                                maxLines = 1,
+                                overflow =
+                                    TextOverflow.Ellipsis,
+                                fontWeight =
+                                    FontWeight.Black,
+                                style =
+                                    MaterialTheme.typography.titleLarge
                             )
-                    }
-                    ReviewChecklistRow(
-                        "Không chứa nội dung vi phạm",
-                        checklist.safeContent
-                    ) {
-                        checklist =
-                            checklist.copy(safeContent = it)
-                    }
-                    ReviewChecklistRow(
-                        "Không trùng theme",
-                        checklist.notDuplicate
-                    ) {
-                        checklist =
-                            checklist.copy(notDuplicate = it)
-                    }
-                }
-            },
-            confirmButton = {
-                Row(
-                    horizontalArrangement =
-                        Arrangement.spacedBy(8.dp)
-                ) {
-                    OutlinedButton(
-                        onClick = {
-                            showReviewDialog = false
-                            showRejectDialog = true
+                            Text(
+                                "${t.coinPrice} M4X • $validationLabel • Checklist $checklistDone/5",
+                                maxLines = 1,
+                                overflow =
+                                    TextOverflow.Ellipsis,
+                                style =
+                                    MaterialTheme.typography.bodySmall,
+                                color = validationColor
+                            )
                         }
-                    ) {
-                        Text("Từ chối")
+                        IconButton(
+                            onClick = {
+                                showReviewDialog = false
+                            }
+                        ) {
+                            Icon(
+                                Icons.Default.Close,
+                                "Đóng"
+                            )
+                        }
                     }
-                    Button(
-                        onClick = {
-                            showReviewDialog = false
-                            onApprove(checklist)
-                        },
-                        enabled =
-                            checklist.completed &&
-                                t.clientValidationStatus !=
-                                "failed" &&
-                                (
-                                    t.clientSafetyScore == 0 ||
-                                        t.clientSafetyScore >= 60
+
+                    HorizontalDivider()
+
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 570.dp)
+                            .verticalScroll(
+                                rememberScrollState()
+                            )
+                            .padding(14.dp),
+                        verticalArrangement =
+                            Arrangement.spacedBy(10.dp)
+                    ) {
+                        if (reviewImages.isNotEmpty()) {
+                            val safeIndex =
+                                selectedPreviewIndex
+                                    .coerceIn(
+                                        0,
+                                        reviewImages.lastIndex
                                     )
+
+                            Surface(
+                                color = Color.Black,
+                                shape =
+                                    RoundedCornerShape(18.dp),
+                                modifier =
+                                    Modifier.fillMaxWidth()
+                            ) {
+                                AsyncImage(
+                                    model =
+                                        reviewImages[safeIndex],
+                                    contentDescription = t.title,
+                                    contentScale =
+                                        ContentScale.Fit,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(240.dp)
+                                )
+                            }
+
+                            if (reviewImages.size > 1) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .horizontalScroll(
+                                            rememberScrollState()
+                                        ),
+                                    horizontalArrangement =
+                                        Arrangement.spacedBy(8.dp)
+                                ) {
+                                    reviewImages.forEachIndexed {
+                                            index,
+                                            imageUrl ->
+                                        Surface(
+                                            onClick = {
+                                                selectedPreviewIndex =
+                                                    index
+                                            },
+                                            color = Color.Black,
+                                            shape =
+                                                RoundedCornerShape(
+                                                    12.dp
+                                                ),
+                                            border = BorderStroke(
+                                                if (
+                                                    index ==
+                                                    safeIndex
+                                                ) {
+                                                    2.dp
+                                                } else {
+                                                    1.dp
+                                                },
+                                                if (
+                                                    index ==
+                                                    safeIndex
+                                                ) {
+                                                    MaterialTheme
+                                                        .colorScheme
+                                                        .primary
+                                                } else {
+                                                    MaterialTheme
+                                                        .colorScheme
+                                                        .outlineVariant
+                                                }
+                                            )
+                                        ) {
+                                            AsyncImage(
+                                                model = imageUrl,
+                                                contentDescription =
+                                                    "Ảnh ${index + 1}",
+                                                contentScale =
+                                                    ContentScale.Fit,
+                                                modifier = Modifier
+                                                    .size(
+                                                        width = 62.dp,
+                                                        height = 72.dp
+                                                    )
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            Surface(
+                                color = MaterialTheme
+                                    .colorScheme
+                                    .surfaceVariant,
+                                shape =
+                                    RoundedCornerShape(18.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(150.dp)
+                            ) {
+                                Box(
+                                    contentAlignment =
+                                        Alignment.Center
+                                ) {
+                                    Column(
+                                        horizontalAlignment =
+                                            Alignment.CenterHorizontally
+                                    ) {
+                                        Icon(
+                                            Icons.Default
+                                                .ImageNotSupported,
+                                            null
+                                        )
+                                        Text(
+                                            "Chưa có ảnh xem trước",
+                                            style =
+                                                MaterialTheme.typography
+                                                    .bodySmall
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        val compactInfo = buildList {
+                            if (
+                                t.clientValidationMessage
+                                    .isNotBlank()
+                            ) {
+                                add(
+                                    t.clientValidationMessage
+                                )
+                            }
+                            if (
+                                t.clientFileSizeBytes > 0L
+                            ) {
+                                val sizeMb =
+                                    t.clientFileSizeBytes
+                                        .toDouble() /
+                                        1024.0 /
+                                        1024.0
+                                add(
+                                    "Dung lượng ${
+                                        java.lang.String
+                                            .format(
+                                                java.util.Locale.US,
+                                                "%.2f MB",
+                                                sizeMb
+                                            )
+                                    }"
+                                )
+                            }
+                        }.joinToString(" • ")
+
+                        if (compactInfo.isNotBlank()) {
+                            Text(
+                                compactInfo,
+                                maxLines = 2,
+                                overflow =
+                                    TextOverflow.Ellipsis,
+                                style =
+                                    MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme
+                                    .colorScheme
+                                    .onSurfaceVariant
+                            )
+                        }
+
+                        val safetyColor = when (
+                            t.clientSafetyLevel
+                        ) {
+                            "excellent" ->
+                                MaterialTheme.colorScheme.primary
+                            "good" ->
+                                MaterialTheme.colorScheme.secondary
+                            "caution" ->
+                                MaterialTheme.colorScheme.tertiary
+                            else ->
+                                MaterialTheme.colorScheme.error
+                        }
+
+                        Surface(
+                            color =
+                                safetyColor.copy(alpha = .10f),
+                            shape =
+                                RoundedCornerShape(16.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(
+                                    horizontal = 12.dp,
+                                    vertical = 7.dp
+                                ),
+                                verticalAlignment =
+                                    Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    Icons.Default.Security,
+                                    null,
+                                    tint = safetyColor,
+                                    modifier =
+                                        Modifier.size(20.dp)
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Column(Modifier.weight(1f)) {
+                                    Text(
+                                        "Điểm an toàn",
+                                        fontWeight =
+                                            FontWeight.Bold,
+                                        style =
+                                            MaterialTheme.typography
+                                                .bodyMedium
+                                    )
+                                    Text(
+                                        if (
+                                            t.clientSafetyScore >
+                                            0
+                                        ) {
+                                            "${t.clientSafetyScore}/100"
+                                        } else {
+                                            "Chưa có báo cáo"
+                                        },
+                                        color = safetyColor,
+                                        style =
+                                            MaterialTheme.typography
+                                                .labelMedium
+                                    )
+                                }
+                                TextButton(
+                                    onClick = {
+                                        showSafetyDetails =
+                                            !showSafetyDetails
+                                    }
+                                ) {
+                                    Text(
+                                        if (
+                                            showSafetyDetails
+                                        ) {
+                                            "Thu gọn"
+                                        } else {
+                                            "Chi tiết"
+                                        }
+                                    )
+                                }
+                            }
+                        }
+
+                        if (showSafetyDetails) {
+                            AdminSafetyReport(t)
+                        }
+
+                        Row(
+                            modifier =
+                                Modifier.fillMaxWidth(),
+                            verticalAlignment =
+                                Alignment.CenterVertically
+                        ) {
+                            Text(
+                                "Checklist",
+                                modifier =
+                                    Modifier.weight(1f),
+                                fontWeight =
+                                    FontWeight.Black
+                            )
+                            Text(
+                                "$checklistDone/5",
+                                color = if (
+                                    checklist.completed
+                                ) {
+                                    MaterialTheme
+                                        .colorScheme.primary
+                                } else {
+                                    MaterialTheme
+                                        .colorScheme
+                                        .onSurfaceVariant
+                                },
+                                fontWeight =
+                                    FontWeight.Black
+                            )
+                        }
+
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement =
+                                Arrangement.spacedBy(8.dp)
+                        ) {
+                            CompactReviewCheck(
+                                label = "Ảnh đầy đủ",
+                                checked =
+                                    checklist.previewOk,
+                                modifier =
+                                    Modifier.weight(1f)
+                            ) {
+                                checklist = checklist.copy(
+                                    previewOk = it
+                                )
+                            }
+                            CompactReviewCheck(
+                                label = "Link hoạt động",
+                                checked =
+                                    checklist.downloadOk,
+                                modifier =
+                                    Modifier.weight(1f)
+                            ) {
+                                checklist = checklist.copy(
+                                    downloadOk = it
+                                )
+                            }
+                        }
+
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement =
+                                Arrangement.spacedBy(8.dp)
+                        ) {
+                            CompactReviewCheck(
+                                label = "Đúng hệ điều hành",
+                                checked =
+                                    checklist.compatibilityOk,
+                                modifier =
+                                    Modifier.weight(1f)
+                            ) {
+                                checklist = checklist.copy(
+                                    compatibilityOk = it
+                                )
+                            }
+                            CompactReviewCheck(
+                                label = "Nội dung an toàn",
+                                checked =
+                                    checklist.safeContent,
+                                modifier =
+                                    Modifier.weight(1f)
+                            ) {
+                                checklist = checklist.copy(
+                                    safeContent = it
+                                )
+                            }
+                        }
+
+                        CompactReviewCheck(
+                            label = "Không trùng theme",
+                            checked =
+                                checklist.notDuplicate,
+                            modifier =
+                                Modifier.fillMaxWidth()
+                        ) {
+                            checklist = checklist.copy(
+                                notDuplicate = it
+                            )
+                        }
+                    }
+
+                    HorizontalDivider()
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        horizontalArrangement =
+                            Arrangement.spacedBy(10.dp)
                     ) {
-                        Text("Duyệt")
+                        OutlinedButton(
+                            onClick = {
+                                showReviewDialog = false
+                                showRejectDialog = true
+                            },
+                            modifier =
+                                Modifier.weight(1f)
+                        ) {
+                            Text("Từ chối")
+                        }
+                        Button(
+                            onClick = {
+                                showReviewDialog = false
+                                onApprove(checklist)
+                            },
+                            enabled =
+                                checklist.completed &&
+                                    t.clientValidationStatus !=
+                                    "failed" &&
+                                    (
+                                        t.clientSafetyScore ==
+                                            0 ||
+                                            t.clientSafetyScore >=
+                                            60
+                                        ),
+                            modifier =
+                                Modifier.weight(1f)
+                        ) {
+                            Text("Duyệt")
+                        }
                     }
-                }
-            },
-            dismissButton = {
-                TextButton(
-                    onClick = {
-                        showReviewDialog = false
-                    }
-                ) {
-                    Text("Đóng")
                 }
             }
-        )
+        }
     }
 
     if (showRejectDialog) {
@@ -3793,6 +4138,51 @@ private fun ReviewCard(
                 }
             }
         )
+    }
+}
+
+@Composable
+private fun CompactReviewCheck(
+    label: String,
+    checked: Boolean,
+    modifier: Modifier = Modifier,
+    onChecked: (Boolean) -> Unit
+) {
+    Surface(
+        modifier = modifier
+            .clip(RoundedCornerShape(13.dp))
+            .clickable {
+                onChecked(!checked)
+            },
+        color = if (checked) {
+            MaterialTheme.colorScheme.primaryContainer
+        } else {
+            MaterialTheme.colorScheme.surfaceVariant
+        },
+        shape = RoundedCornerShape(13.dp)
+    ) {
+        Row(
+            modifier = Modifier.padding(
+                horizontal = 8.dp,
+                vertical = 5.dp
+            ),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Checkbox(
+                checked = checked,
+                onCheckedChange = onChecked,
+                modifier = Modifier.size(34.dp)
+            )
+            Spacer(Modifier.width(4.dp))
+            Text(
+                label,
+                modifier = Modifier.weight(1f),
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                style = MaterialTheme.typography.bodySmall,
+                fontWeight = FontWeight.Bold
+            )
+        }
     }
 }
 

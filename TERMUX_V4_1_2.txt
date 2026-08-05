@@ -1,0 +1,9 @@
+cd ~/storage/downloads
+rm -rf M4X_V4_1_2_COMPACT_FULL_PREVIEW_REVIEW_PATCH
+unzip -o M4X_V4_1_2_COMPACT_FULL_PREVIEW_REVIEW_PATCH.zip
+cp -afv "$HOME/storage/downloads/M4X_V4_1_2_COMPACT_FULL_PREVIEW_REVIEW_PATCH/." "$HOME/storage/downloads/M4X-APP-NEW-RUST/"
+cd "$HOME/storage/downloads/M4X-APP-NEW-RUST"
+git status --short
+git add -A
+git commit -m "Make theme review compact with full preview v4.1.2"
+git push origin main
