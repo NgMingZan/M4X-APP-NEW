@@ -1719,8 +1719,6 @@ private fun themeAuthorSubtitle(theme: ThemeItem): String {
 }
 
 @Composable
-private fun QuestHub
-@Composable
 private fun QuestHub(api: SupabaseApi, session: Session, profile: Profile?, onCoinChanged: (Long) -> Unit, onMessage: (String) -> Unit) {
     val scope = rememberCoroutineScope()
     var quests by remember { mutableStateOf<List<QuestItem>>(emptyList()) }

@@ -1,9 +1,9 @@
 {
-  "versionCode": 62,
-  "versionName": "3.8.4",
+  "versionCode": 63,
+  "versionName": "3.8.5",
   "apkUrl": "https://github.com/NgMingZan/M4X-APP-NEW/releases/latest/download/M4X-Theme.apk",
-  "title": "M4X Theme v3.8.4 — Giao diện Theme kiểu video",
-  "message": "Đổi giao diện phần theme sang kiểu thư viện giống video: lưới 3 cột, thẻ poster tối giản, trang chi tiết nền đen, ảnh lớn vuốt ngang, thêm tên tác giả đăng theme.",
+  "title": "M4X Theme v3.8.5 — Sửa lỗi build giao diện Theme",
+  "message": "Sửa lỗi cú pháp QuestHub làm GitHub Actions không biên dịch được bản giao diện Theme kiểu video. Giữ nguyên lưới 3 cột, trang chi tiết nền đen, ảnh vuốt ngang và tên tác giả.",
   "forceUpdate": false,
   "notes": "Không cần SQL mới. Dùng lại dữ liệu theme hiện có; tên tác giả lấy từ metadata của theme."
 }

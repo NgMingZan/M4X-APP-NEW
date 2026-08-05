@@ -1,0 +1,16 @@
+M4X Theme v3.8.5 validation
+
+PASS: versionCode = 63
+PASS: versionName = "3.8.5"
+PASS: stray QuestHub declaration removed
+PASS: real QuestHub function exists
+PASS: theme video grid preserved
+PASS: theme author preserved
+PASS: horizontal preview preserved
+PASS: Kotlin braces balanced
+
+Root cause confirmed from GitHub Actions log:
+- MainActivity.kt line 1721 contained an incomplete duplicate QuestHub declaration.
+- The duplicate declaration has been removed.
+
+Android build still requires GitHub Actions confirmation.
